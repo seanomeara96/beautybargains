@@ -1,0 +1,23 @@
+{{ define "addwebsite" }}
+    {{template "header" . }}
+    <div class="ui container">
+  <form class="ui form" action="/add-website" method="POST">
+    <div class="field">
+      <label for="website-name">Website Name</label>
+      <input type="text" id="website-name" name="name">
+    </div>
+    <div class="field">
+      <label for="website-url">Website URL</label>
+      <input type="text" id="website-url" name="url">
+    </div>
+    <div class="field">
+      <label for="website-country">Website Country</label>
+      <select name="country" id="website-country">
+        <option value="IE">Ireland</option>
+      </select>
+    </div>
+    <input class="ui button" type="submit" value="Submit">
+  </form>
+</div>
+    {{ template "footer"}}
+{{ end }}

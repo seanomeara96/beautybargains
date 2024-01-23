@@ -1,0 +1,66 @@
+{{ define "product" }}
+    {{ template "header" . }}
+    <div class="ui container" style="padding: 20px 0;">
+        <div class="ui grid">
+            <div class="eight wide column">    
+                <img class="ui image" height="200" width="200" src="{{ .Product.Image | placeholderImage }}" />
+            </div>
+            <div class="eight wide column">
+                <canvas id="price-chart"></canvas>
+            </div>
+        </div>
+        <h1 class="headline">{{ .Product.ProductName }}</h1>
+        <p><a href="{{ .Product.URL}}">{{ .Product.URL }}</a></p>
+        <style>
+/* Apply the shadow to an element with the class 'inner-shadow' */
+.brand-description--is-faded {
+    position: relative;
+    height: 100px;
+}
+  #brand-description-read-more {
+      display: block;
+      text-align: center;
+  }
+
+  /* Create the inner shadow with a negative spread value */
+  .brand-description--is-faded::before {
+      content: "";
+      position: absolute;
+      width: 100%;
+      height: 60px; /* Adjust the height to control the shadow size */
+      background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 1));
+      bottom: 0px; /* Adjust this value to control the shadow's position */
+      left: 0;
+      pointer-events: none;
+  }</style>
+        <div id="brand-description" class="brand-description--is-faded">{{ .Product.Description }}</div>
+        <div><a href="#" id="brand-description-read-more">Read More</a></div>
+        <script>
+                    </script>
+    </div>
+    <div class="ui grid container" style="padding:20px 0;">
+        {{ $productID := .Product.ProductID }}
+        {{ range .Prices }}
+            <div class="four wide column">
+                <a class="ui card" href="/products/{{ $productID }}/prices/{{ .PriceID }}">
+                    <div class="content">
+                        <div class="center aligned header">{{ .Price }}</div>
+                        <div class="center aligned description">
+                            <p>{{ .Currency }}</p>
+                        </div>
+                    </div>
+                    <div class="extra content">
+                        <div class="center aligned">
+                            Recorded at: {{ .Timestamp | longDate  }}
+                        </div>
+                    </div>
+                </a>
+
+            </div>
+        {{ end }}
+    </div>
+    <script id="productdata">
+     {{ .ProductDataJSON }}
+    </script>
+    {{ template "footer" .}}
+{{ end }}

@@ -1,0 +1,13 @@
+{{ define "pagination" }}
+    <div class="ui container">
+        <div style="display: flex; gap: 2rem;">
+            {{ if gt .PageNumber 1 }}
+                <a href="?page={{ subtract .PageNumber 1}}">Prev</a>
+            {{ end }}
+
+            {{ if lt .PageNumber .MaxPages}}
+                <a href="?page={{ add .PageNumber 1}}">Next</a>
+            {{ end }}
+        </div>
+    </div>
+{{ end }}

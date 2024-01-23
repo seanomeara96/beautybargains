@@ -1,0 +1,14 @@
+{{ define "pricechanges" }}
+    {{template "header" . }}
+        <div class="ui relaxed divided list container">
+            {{ range .PriceChanges }}
+            <div class="item">
+                <div class="content">
+                    <a class="header" href="/products/{{.ProductID}}">{{ .ProductID }}</a>
+                    <div class="description">Was {{.PreviousPrice}} => Now {{ .CurrentPrice }}</div>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+    {{template "footer" . }}
+{{ end }}

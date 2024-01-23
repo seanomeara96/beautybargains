@@ -1,0 +1,14 @@
+{{ define "confirmupdateproducts" }}
+    {{ template "header" . }}
+    <div class="ui container">
+        <h2 class="ui heading">Added {{ len .ProductURLs }} New Products to {{ .Website.WebsiteName }} Tracker</h2>
+
+    </div>
+
+    <div class="ui relaxed divided list container">
+        {{ range .ProductURLs }}
+            <div class="item">{{.}}</div>
+        {{ end }}
+    </div>
+    {{ template "footer" . }}
+{{ end }}

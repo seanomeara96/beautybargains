@@ -1,0 +1,14 @@
+{{ define "brands" }}
+    {{ template "header" . }}
+    <div class="ui relaxed divided list container">
+        
+            {{ range .Brands }}
+                <div class="item"><a href="/brands/{{ .Path }}">{{ .Name | proper | unescape }}</a></div>
+            {{ end }}
+        
+    </div>
+    
+    {{ template "pagination" .Pagination }}
+
+    {{ template "footer" . }}
+{{  end }}
