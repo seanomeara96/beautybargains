@@ -1,0 +1,30 @@
+{{ define "bannerpromotions" }}
+    <div class="ui cards link centered">
+        {{range . }}
+            {{ template "bannerpromotion" . }}
+        {{ end }}
+    </div>
+{{ end }}
+
+
+{{ define "bannerpromotion" }}
+    <div class="card">
+        <div class="image">
+            <img src="{{ .BannerURL }}" alt="Banner Promotion for {{ .WebsiteName }} seen at {{ longDate .Timestamp }}" >
+        </div>
+        <div class="content">
+            <div class="header"><a style="color: inherit;" href="/{{ lower .WebsiteName }}/promotions/">{{ .WebsiteName }}</a></div>
+            <div class="meta">
+                <a href="{{ .URL }}"i target="_blank" nofollow="true">{{ .URL }}</a>
+            </div>
+            <div class="description">
+                {{ .Description }} 
+            </div>
+        </div>
+        <div class="extra content">
+            <span class="right floated">
+                {{ longDate .Timestamp }}
+            </span>
+        </div>
+    </div>
+{{ end }}

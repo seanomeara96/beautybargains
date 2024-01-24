@@ -2,6 +2,8 @@ package main
 
 import (
 	"beautybargains/handlers"
+	"beautybargains/models"
+	"beautybargains/routers"
 	"beautybargains/services"
 	"database/sql"
 	"flag"
@@ -9,18 +11,27 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
-	portValue := flag.String("port", "", "http port")
+
+	_port := flag.String("port", "", "http port")
+	_mode := flag.String("mode", "", "deployment mode")
 	flag.Parse()
-	if *portValue == "" {
+
+	port := *_port
+	mode := models.Mode(*_mode)
+
+	if port == "" {
 		log.Println("port is required via -port flag")
 		return
 	}
-	port := *portValue
+
+	if mode == "" {
+		log.Println("no mode was supplied, startig server in dev mode")
+		mode = models.Dev
+	}
 
 	db, err := sql.Open("sqlite3", "data")
 	if err != nil {
@@ -33,34 +44,8 @@ func main() {
 	}
 
 	service := services.NewService(db)
-
 	handler := handlers.NewHandler(service, tmpl)
-
-	r := mux.NewRouter()
-	r.StrictSlash(true)
-
-	assetsDir := http.Dir("assets/dist")
-
-	assetsFileServer := http.FileServer(assetsDir)
-	r.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", assetsFileServer))
-	r.HandleFunc("/", handler.Home)
-	r.HandleFunc("/websites/{website_id}/products", handler.GetWebsiteProducts).Methods(http.MethodGet)
-	r.HandleFunc("/products/update", handler.GetUpdateProductsForm).Methods(http.MethodGet)
-	r.HandleFunc("/products/update", handler.ProcessUpdateProductsForm).Methods(http.MethodPost)
-	r.HandleFunc("/products/errors", handler.ListProductErrors).Methods(http.MethodGet)
-	r.HandleFunc("/products/{product_id}", handler.GetProductWithPrices).Methods(http.MethodGet)
-	r.HandleFunc("/products/{product_id}/prices/{price_id}", handler.GetPriceData).Methods(http.MethodGet)
-	r.HandleFunc("/add-website", handler.GetAddWebsiteForm).Methods(http.MethodGet)
-	r.HandleFunc("/add-website", handler.ProcessAddWebsiteFormSubmission).Methods(http.MethodPost)
-	r.HandleFunc("/websites", handler.GetWebsites).Methods(http.MethodGet)
-	r.HandleFunc("/websites/{website_id}", handler.GetWebsite).Methods(http.MethodGet)
-	r.HandleFunc("/products", handler.GetProducts).Methods(http.MethodGet)
-	r.HandleFunc("/brands", handler.GetBrands).Methods(http.MethodGet)
-	r.HandleFunc("/brands/{brand_path}", handler.GetProductsByBrand).Methods(http.MethodGet)
-	r.HandleFunc("/price-drops", handler.GetPriceDrops).Methods(http.MethodGet)
-	r.HandleFunc("/subscribe", handler.Subscribe).Methods(http.MethodPost)
-	r.HandleFunc("/subscribe", handler.Home).Methods(http.MethodGet)
-	r.HandleFunc("/subscribe/verify", handler.VerifySubscription).Methods(http.MethodGet)
+	router := routers.NewRouter(mode, handler)
 	log.Println("listening on " + port)
-	log.Fatal(http.ListenAndServe(":"+port, r))
+	log.Fatal(http.ListenAndServe(":"+port, router))
 }

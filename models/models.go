@@ -2,6 +2,13 @@ package models
 
 import "time"
 
+type Mode string
+
+const (
+	Dev  Mode = "dev"
+	Prod Mode = "prod"
+)
+
 // Product struct matching the Products table
 type Product struct {
 	ProductID   int       `json:"product_id"`
@@ -75,4 +82,13 @@ type Brand struct {
 	ID   int
 	Name string
 	Path string
+}
+
+type BannerPromotion struct {
+	Website
+	ID          int
+	Description string
+	BannerURL   string
+	Link        string
+	Timestamp   time.Time
 }

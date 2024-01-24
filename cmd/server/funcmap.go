@@ -16,6 +16,7 @@ var funcMap = template.FuncMap{
 	"isCurrentPage":       isCurrentPage,
 	"add":                 add,
 	"subtract":            subtract,
+	"lower":               lower,
 }
 
 func add(a, b int) int {
@@ -58,4 +59,8 @@ func proper(str string) string {
 
 func isCurrentPage(r *http.Request, path string) bool {
 	return r.URL.Path == path
+}
+
+func lower(s string) string {
+	return strings.ToLower(s)
 }

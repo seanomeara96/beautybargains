@@ -30,16 +30,17 @@ type MenuItem struct {
 	Name string
 }
 
-var menuItems = [4]MenuItem{
+var menuItems = []MenuItem{
 	MenuItem{"/", "Home"},
-	MenuItem{"/websites", "Websites"},
-	MenuItem{"/products", "Products"},
-	MenuItem{"/brands", "Brands"},
+	MenuItem{"/promotions/", "Promotions"},
+	MenuItem{"/websites/", "Websites"},
+	MenuItem{"/products/", "Products"},
+	MenuItem{"/brands/", "Brands"},
 }
 
 type BasePageData struct {
 	Request   *http.Request
-	MenuItems [4]MenuItem
+	MenuItems []MenuItem
 }
 
 func newBasePageData(r *http.Request) BasePageData {
@@ -93,6 +94,14 @@ func (h *Handler) paginator(r *http.Request) (int, int, int) {
 	}
 
 	return limit, offset, page
+}
+
+func (h *Handler) RobotsHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "robots.txt")
+}
+
+func (h *Handler) SitemapHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "sitemap.xml")
 }
 
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
@@ -646,6 +655,37 @@ func (h *Handler) VerifySubscription(w http.ResponseWriter, r *http.Request) {
 	err = h.tmpl.ExecuteTemplate(w, "subscriptionverification", SubscriptionVerificationPageData{b})
 	if err != nil {
 		log.Printf("Error: could not render subscription verification page => %v", err)
+	}
+
+}
+
+func (h *Handler) Promotions(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	websiteName := vars["websiteName"]
+
+	params := services.GetBannerPromotionsParams{}
+
+	if websiteName != "" {
+		params.WebsiteName = websiteName
+	}
+
+	promos, err := h.s.GetBannerPromotions(params)
+	if err != nil {
+		log.Printf("Error: %v", err)
+		h.InternalError(w, r)
+		return
+	}
+
+	type PromoPageData struct {
+		BasePageData
+		Promotions []models.BannerPromotion
+	}
+
+	b := newBasePageData(r)
+
+	err = h.tmpl.ExecuteTemplate(w, "promotionspage", PromoPageData{b, promos})
+	if err != nil {
+		log.Printf("Error: %v", err)
 	}
 
 }
