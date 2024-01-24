@@ -15,37 +15,41 @@ import (
 )
 
 func main() {
-
 	_port := flag.String("port", "", "http port")
 	_mode := flag.String("mode", "", "deployment mode")
+
 	flag.Parse()
 
 	port := *_port
 	mode := models.Mode(*_mode)
 
 	if port == "" {
-		log.Println("port is required via -port flag")
+		log.Println("Port is required via -port flag.")
 		return
 	}
 
 	if mode == "" {
-		log.Println("no mode was supplied, startig server in dev mode")
+		log.Println("No mode was supplied, starting server in development mode.")
 		mode = models.Dev
 	}
 
 	db, err := sql.Open("sqlite3", "data")
 	if err != nil {
-		panic(err)
+		log.Printf("Issue connecting to database. %v", err)
+		return
 	}
+	defer db.Close()
 
 	tmpl, err := template.New("web").Funcs(funcMap).ParseGlob("templates/**/*.tmpl")
 	if err != nil {
-		panic(err)
+		log.Printf("Error parsing templates. %v", err)
+		return
 	}
 
 	service := services.NewService(db)
 	handler := handlers.NewHandler(service, tmpl)
 	router := routers.NewRouter(mode, handler)
-	log.Println("listening on " + port)
+
+	log.Println("Server listening on http://localhost:" + port)
 	log.Fatal(http.ListenAndServe(":"+port, router))
 }

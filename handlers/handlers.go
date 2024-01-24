@@ -97,11 +97,11 @@ func (h *Handler) paginator(r *http.Request) (int, int, int) {
 }
 
 func (h *Handler) RobotsHandler(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "robots.txt")
+	http.ServeFile(w, r, "./static/robots.txt")
 }
 
 func (h *Handler) SitemapHandler(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "sitemap.xml")
+	http.ServeFile(w, r, "./static/sitemap.xml")
 }
 
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
