@@ -51,5 +51,7 @@ func main() {
 	router := routers.NewRouter(mode, handler)
 
 	log.Println("Server listening on http://localhost:" + port)
-	log.Fatal(http.ListenAndServe(":"+port, router))
+	if err = http.ListenAndServe(":"+port, router); err != nil {
+		log.Printf("Error during listen and serve. %v", err)
+	}
 }
