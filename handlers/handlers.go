@@ -663,7 +663,9 @@ func (h *Handler) Promotions(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	websiteName := vars["websiteName"]
 
-	params := services.GetBannerPromotionsParams{}
+	params := services.GetBannerPromotionsParams{
+		SortByTimestampDesc: true,
+	}
 
 	if websiteName != "" {
 		params.WebsiteName = websiteName

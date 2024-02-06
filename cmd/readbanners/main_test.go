@@ -1,26 +1,46 @@
 package main
 
 import (
-	"beautybargains/models"
+	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 func TestExtractBanners(t *testing.T) {
-	banners, err := ExtractBannerURLs(models.Website{WebsiteID: 3, URL: "https://millies.ie"})
+	res, err := http.Get("https://www.mccauley.ie/")
 	if err != nil {
-		t.Error(err)
+		t.Errorf("error sending get request to extract banner urls %v", err)
 		return
 	}
 
-	if len(banners) < 1 {
-		t.Error("Expected banners")
+	defer res.Body.Close()
+
+	// Load the HTML document
+	doc, err := goquery.NewDocumentFromReader(res.Body)
+	if err != nil {
+		t.Errorf("error parsing document with go query %v", err)
 		return
 	}
 
-	for _, banner := range banners {
-		if strings.Contains(banner, "{width}") {
-			t.Errorf("Find and replace failed for millies. Expected not to find {width} in %s", banner)
+	doc.Find("[data-content-type=slide] [data-background-images]").Each(func(i int, s *goquery.Selection) {
+		value, found := s.Attr("data-background-images")
+		if found {
+			type MCBackgroundImage struct {
+				MobileImage string `json:"mobile_image"`
+			}
+
+			var x MCBackgroundImage
+			value = strings.ReplaceAll(value, "\\\"", "\"")
+			err = json.Unmarshal([]byte(value), &x)
+			if err != nil {
+				t.Error(err)
+			}
+
+			t.Error(x.MobileImage)
 		}
-	}
+	})
+
 }

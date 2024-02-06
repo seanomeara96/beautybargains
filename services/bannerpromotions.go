@@ -6,7 +6,8 @@ import (
 )
 
 type GetBannerPromotionsParams struct {
-	WebsiteName string
+	WebsiteName         string
+	SortByTimestampDesc bool
 }
 
 func (s *Service) GetBannerPromotions(params GetBannerPromotionsParams) ([]models.BannerPromotion, error) {
@@ -21,6 +22,10 @@ func (s *Service) GetBannerPromotions(params GetBannerPromotionsParams) ([]model
 	if params.WebsiteName != "" {
 		q += " WHERE LOWER(w.WebsiteName) = ?"
 		args = append(args, params.WebsiteName)
+	}
+
+	if params.SortByTimestampDesc {
+		q += " ORDER BY Timestamp DESC"
 	}
 
 	rows, err := s.db.Query(q, args...)

@@ -4,6 +4,7 @@ import (
 	"beautybargains/models"
 	"beautybargains/services"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -136,6 +137,22 @@ func ExtractBannerURLs(website models.Website) ([]string, error) {
 		for i := 0; i < len(milliesBanners); i += 2 {
 			bannerURLs = append(bannerURLs, milliesBanners[i])
 		}
+	case 4:
+		doc.Find("[data-content-type=slide] [data-background-images]").Each(func(i int, s *goquery.Selection) {
+			value, found := s.Attr("data-background-images")
+			if found {
+				type MCBackgroundImage struct {
+					MobileImage string `json:"mobile_image"`
+				}
+
+				var x MCBackgroundImage
+				value = strings.ReplaceAll(value, "\\\"", "\"")
+				err = json.Unmarshal([]byte(value), &x)
+				if err == nil {
+					bannerURLs = append(bannerURLs, x.MobileImage)
+				}
+			}
+		})
 	default:
 		return []string{}, fmt.Errorf("Could not find banner extraction rules for website %s", website.WebsiteName)
 	}
