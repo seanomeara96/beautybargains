@@ -17,6 +17,9 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+/*
+Products can have multiple offers/variants associated with them
+*/
 type ProductDataMultipleOffers struct {
 	Brand struct {
 		Name string `json:"name"`
@@ -27,6 +30,9 @@ type ProductDataMultipleOffers struct {
 	Offers      []ProductOffers `json:"offers"`
 }
 
+/*
+Most products have a single variant
+*/
 type ProductDataSingleOffer struct {
 	Brand struct {
 		Name string `json:"name"`
@@ -37,6 +43,9 @@ type ProductDataSingleOffer struct {
 	Offers      ProductOffers `json:"offers"`
 }
 
+/*
+Product offers contain barcodes and prices (usually)
+*/
 type ProductOffers struct {
 	Image        string `json:"image"`
 	Name         string `json:"name"`
@@ -58,19 +67,24 @@ func NewScraper(service *services.Service) *Scraper {
 }
 
 func (s *Scraper) SaveProductData(websiteID int, url string) error {
-
 	res, err := http.Get(url)
 	if err != nil {
 		return err
 	}
 
+	/*
+		Instantiate a goQuery doc
+	*/
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
 		return err
 	}
-	res.Body.Close()
+	res.Body.Close() // dont need to read res.Body from here out
 
 	var productDataString string
+	/*
+		Find te product ldJSON
+	*/
 	doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
 		script := strings.TrimSpace(s.Text())
 		matched, _ := regexp.Match(`"@type":\s?"Product"`, []byte(script))
@@ -79,12 +93,21 @@ func (s *Scraper) SaveProductData(websiteID int, url string) error {
 			productDataString = string(reg.ReplaceAll([]byte(script), []byte(`"gtin1$1":"$2"`)))
 		}
 	})
-
+	/*
+		if product data string is empty (it shouldnt be)
+	*/
 	if productDataString == "" {
 		return fmt.Errorf("no product data for url %s", url)
 	}
 
+	/*
+		Quick regex test to see if product has multiple variants
+	*/
 	containsMultipleOffers, _ := regexp.Match(`"offers"\s?:\s?\[`, []byte(productDataString))
+
+	/*
+		Based on the above result choose an unmarshalling strategy
+	*/
 	if containsMultipleOffers {
 		var productData ProductDataMultipleOffers
 		err = json.Unmarshal([]byte(productDataString), &productData)
@@ -114,7 +137,9 @@ func (s *Scraper) SaveProductData(websiteID int, url string) error {
 
 func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand string, description string, image string, offer ProductOffers) error {
 	brandID := 0
-
+	/*
+		If brand string is not empty then either asociate it with an existing brand or create a new one
+	*/
 	if brand != "" {
 		brandExists, err := s.service.DoesBrandExist(strings.ToLower(brand))
 		if err != nil {
@@ -145,6 +170,9 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 		return err
 	}
 	var productID int
+	/*
+		If product exists, update it else create a new one
+	*/
 	if productExists {
 		product, err := s.service.GetProductByURL(webURL)
 		if err != nil {
@@ -152,7 +180,6 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 		}
 
 		productID = product.ProductID
-
 		productUpdates := product
 		productUpdates.ProductName = name
 		productUpdates.LastCrawled = time.Now()
@@ -185,6 +212,9 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 		return fmt.Errorf("expected a product id greater than 0. Instead got: %d", productID)
 	}
 
+	/*
+		parse price from string
+	*/
 	price, err := strconv.ParseFloat(offer.Price, 64)
 	if err != nil {
 		return err
@@ -203,6 +233,9 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 		Currency:  "EUR",
 	}
 
+	/*
+		Save price data
+	*/
 	err = s.service.CreatePriceData(priceData)
 	if err != nil {
 		return err

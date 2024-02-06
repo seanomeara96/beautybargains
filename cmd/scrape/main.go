@@ -96,42 +96,63 @@ func main() {
 		log.Error(fmt.Sprintf("could not connect to db: %v", err))
 		return
 	}
+	defer db.Close()
 
 	srv := services.NewService(db)
 	scraper := scrapers.NewScraper(srv)
 
+	/*
+		Identify products that havent been crawled in x amount of time
+	*/
 	count, err := CountProductsToCrawl(db, websiteID)
 	if err != nil {
 		log.Error(fmt.Sprintf("could not count products left to crawl: %v", err))
 		return
 	}
 
+	/*
+		While there are products retrieve the necessary info
+	*/
 	for count > 0 {
+		/*
+			Get all the products that need crawling
+		*/
 		products, err := GetNextProducts(db, websiteID)
 		if err != nil {
 			log.Error(fmt.Sprintf("could not get next product to crawl: %v", err))
 			return
 		}
-
+		/*
+			For each product save the product data
+		*/
 		for _, product := range products {
 			err = scraper.SaveProductData(product.WebsiteID, product.URL)
 			if err != nil {
+				/*
+					If fail to save product data, save reason
+				*/
 				log.Error(fmt.Sprintf("could not save product data %v", err))
-				_err := srv.SaveProductError(product.ProductID, true, err.Error())
-				if _err != nil {
+				/*
+					If saving error fails, log the error
+				*/
+				serr := srv.SaveProductError(product.ProductID, true, err.Error())
+				if serr != nil {
 					log.Error(fmt.Sprintf("could not save error msg to product: %v", err))
 					return
 				}
 			}
 			log.Info(fmt.Sprintf("Successfully saved product: %d - %s", product.ProductID, product.ProductName))
-
 		}
-
+		/*
+			Update count of products that need to be crawled
+		*/
 		count, err = CountProductsToCrawl(db, websiteID)
 		if err != nil {
 			panic(err)
 		}
-
+		/*
+			Precautionary sleep to help avoid rate limits
+		*/
 		time.Sleep(1500 * time.Millisecond)
 	}
 }

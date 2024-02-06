@@ -91,6 +91,9 @@ func main() {
 	}
 }
 
+/*
+For a known website, retreive the banner urls and supply them in a string slice
+*/
 func ExtractBannerURLs(website models.Website) ([]string, error) {
 	res, err := http.Get(website.URL)
 	if err != nil {
@@ -138,6 +141,7 @@ func ExtractBannerURLs(website models.Website) ([]string, error) {
 			bannerURLs = append(bannerURLs, milliesBanners[i])
 		}
 	case 4:
+		// mcCauleys
 		doc.Find("[data-content-type=slide] [data-background-images]").Each(func(i int, s *goquery.Selection) {
 			value, found := s.Attr("data-background-images")
 			if found {
