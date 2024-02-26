@@ -91,4 +91,5 @@ type BannerPromotion struct {
 	BannerURL   string
 	Link        string
 	Timestamp   time.Time
+	AuthorID    int // supposed to correspond with a persona id
 }

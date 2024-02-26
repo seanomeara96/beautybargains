@@ -14,7 +14,7 @@ func (s *Service) GetBannerPromotions(params GetBannerPromotionsParams) ([]model
 	promos := []models.BannerPromotion{}
 
 	q := `SELECT 
-		bp.id, bp.bannerURL, bp.description, bp.Timestamp,
+		bp.id, bp.bannerURL, bp.author_id, bp.description, bp.Timestamp,
 		w.WebsiteID, w.WebsiteName, w.URL, w.Country
 		FROM banner_promotions bp INNER JOIN Websites w ON w.WebsiteID = bp.WebsiteID`
 
@@ -36,7 +36,7 @@ func (s *Service) GetBannerPromotions(params GetBannerPromotionsParams) ([]model
 
 	for rows.Next() {
 		var promo models.BannerPromotion
-		err = rows.Scan(&promo.ID, &promo.BannerURL, &promo.Description, &promo.Timestamp, &promo.WebsiteID, &promo.WebsiteName, &promo.URL, &promo.Country)
+		err = rows.Scan(&promo.ID, &promo.BannerURL, &promo.AuthorID, &promo.Description, &promo.Timestamp, &promo.WebsiteID, &promo.WebsiteName, &promo.URL, &promo.Country)
 		if err != nil {
 			return promos, err
 		}
@@ -56,10 +56,10 @@ func (s *Service) DoesBannerPromotionExist(imgSrc string) (bool, error) {
 	return count > 0, nil
 }
 
-func (s *Service) SaveBannerPromotion(websiteID int, url, description string, timestamp time.Time) error {
+func (s *Service) SaveBannerPromotion(websiteID int, url string, authorID int, description string, timestamp time.Time) error {
 	_, err := s.db.Exec(
-		"INSERT INTO banner_promotions(websiteID, bannerURL, description, timestamp) VALUES (? , ? , ?, ?)",
-		websiteID, url, description, time.Now())
+		"INSERT INTO banner_promotions(websiteID, bannerURL, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
+		websiteID, url, authorID, description, time.Now())
 
 	if err != nil {
 		return err

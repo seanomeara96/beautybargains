@@ -2,6 +2,7 @@ package main
 
 import (
 	"beautybargains/models"
+	"beautybargains/repositories"
 	"beautybargains/services"
 	"database/sql"
 	"encoding/json"
@@ -34,6 +35,12 @@ func main() {
 
 	chat := services.InitChat()
 	srv := services.NewService(db)
+
+	personaRepo, pdb, err := repositories.DefaultPersonaRepoConnection()
+	if err != nil {
+		log.Fatalf("Could not connect to persona repo. %v", err)
+	}
+	defer pdb.Close()
 
 	websites, err := srv.GetAllWebsites(250, 0)
 	if err != nil {
@@ -80,7 +87,18 @@ func main() {
 				log.Fatal(err)
 				return
 			}
-			err = srv.SaveBannerPromotion(website.WebsiteID, url, description, time.Now())
+
+			author, err := personaRepo.GetRandom()
+			if err != nil {
+				log.Printf("Warning: could not get author from repo. %v", err)
+			}
+
+			authorID := 8
+			if author != nil {
+				authorID = author.ID
+			}
+
+			err = srv.SaveBannerPromotion(website.WebsiteID, url, authorID, description, time.Now())
 
 			if err != nil {
 				log.Fatal(err)
