@@ -18,12 +18,13 @@ import (
 )
 
 type Handler struct {
-	s    *services.Service
-	tmpl *template.Template
+	s        *services.Service
+	personas *services.PersonaService
+	tmpl     *template.Template
 }
 
-func NewHandler(s *services.Service, tmpl *template.Template) *Handler {
-	return &Handler{s, tmpl}
+func NewHandler(s *services.Service, tmpl *template.Template, personas *services.PersonaService) *Handler {
+	return &Handler{s, personas, tmpl}
 }
 
 type MenuItem struct {
@@ -672,6 +673,12 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 		params.WebsiteName = websiteName
 	}
 
+	personas, err := h.personas.GetAll()
+	if err != nil {
+		w.WriteHeader(500)
+		return
+	}
+
 	promos, err := h.s.GetBannerPromotions(params)
 	if err != nil {
 		log.Printf("Error: %v", err)
@@ -682,6 +689,14 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 	events := []models.Event{}
 	for i := 0; i < len(promos); i++ {
 		e := models.DummyEvent
+
+		for _, persona := range personas {
+			if persona.ID == promos[i].AuthorID {
+				e.Profile.Username = persona.Name
+				e.Profile.Photo = persona.ProfilePhoto
+			}
+		}
+		//	e.Profile.Username
 
 		// Step 1: Calculate Time Difference
 		timeDiff := time.Since(promos[i].Timestamp)

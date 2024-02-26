@@ -16,6 +16,9 @@ func NewRouter(mode models.Mode, handler *handlers.Handler) *mux.Router {
 	assetsFileServer := http.FileServer(assetsDir)
 	r.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", assetsFileServer))
 
+	imageDir := http.Dir("images")
+	imagesFileServer := http.FileServer(imageDir)
+	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", imagesFileServer))
 	/*
 		Serve robots.txt & sitemap
 	*/

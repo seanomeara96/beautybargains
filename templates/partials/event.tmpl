@@ -1,7 +1,7 @@
 {{ define "event" }}
     <div id="event" class="border-l-2 border-orange flex w-full my-4 bg-white">
         <div id="label" class="block flex-shrink-0 w-14 h-auto self-stretch">
-            <div class="w-full aspect-square rounded-full overflow-hidden m-1"><img class="w-full h-full object-cover object-center" src="{{ .Profile.Photo }}"></div>
+            <div class="w-full aspect-square rounded-full overflow-hidden m-1"><img class="w-full h-full object-cover object-center" src="/{{ .Profile.Photo }}"></div>
         </div>
 
         <div id="content" class="m-2 flex-1 self-stretch text-left break-words">

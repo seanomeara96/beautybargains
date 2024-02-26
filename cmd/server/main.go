@@ -3,6 +3,7 @@ package main
 import (
 	"beautybargains/handlers"
 	"beautybargains/models"
+	"beautybargains/repositories"
 	"beautybargains/routers"
 	"beautybargains/services"
 	"database/sql"
@@ -46,8 +47,13 @@ func main() {
 		return
 	}
 
+	personaRepo, personaDB, err := repositories.DefaultPersonaRepoConnection()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer personaDB.Close()
 	service := services.NewService(db)
-	handler := handlers.NewHandler(service, tmpl)
+	handler := handlers.NewHandler(service, tmpl, services.NewPersonaService(personaRepo))
 	router := routers.NewRouter(mode, handler)
 
 	log.Println("Server listening on http://localhost:" + port)
