@@ -1,16 +1,20 @@
 {{ define "event" }}
     <div id="event" class="border-l-2 border-orange flex w-full my-4 bg-white">
-        <div id="label" class="block flex-shrink-0 w-10 h-auto self-stretch">
+        <div id="label" class="block flex-shrink-0 w-14 h-auto self-stretch">
             <div class="w-full aspect-square rounded-full overflow-hidden m-1"><img class="w-full h-full object-cover object-center" src="{{ .Profile.Photo }}"></div>
         </div>
 
         <div id="content" class="m-2 flex-1 self-stretch text-left break-words">
+
+
             <div id="summary" class="font-bold">
                 <a id="user" class="inline-block font-bold align-baseline">{{ .Profile.Username }}</a> {{ .Content.Summary }}
                 <div id="date" class="inline-block font-normal text-sm text-gray-400 ml-4">
                     {{ .Content.TimeElapsed }}
                 </div>
             </div>
+
+
             {{ if .Content.ExtraImages }}
                 <div id="extra-images" class="mt-2 bg-transparent p-0 text-black flex gap-4">
                     {{ range .Content.ExtraImages }}
@@ -19,19 +23,32 @@
                 </div>
             {{ end }}
 
+
             {{ if and .Content.ExtraImages .Content.ExtraText }}
                 <div class="my-2"></div>
             {{ end }}
 
+
             {{ if .Content.ExtraText }}
-                <div id="extra-text" class="p-0 border-none font-normal max-w-lg leading-tight">
+                <div id="extra-text" class="p-0 border-none font-normal max-w-lg text-lg leading-tight">
                     {{ .Content.ExtraText }}                    
                 </div>
             {{ end }}            
+
+
             <div id="meta" class="inline-block text-sm mt-2 bg-transparent border-none rounded-none shadow-none p-0 text-gray-600">
-                <a id="like">
-                    <i id="like icon">&hearts;</i> 41 Likes
-                </a>
+                {{ if gt .Meta.Likes 0 }}
+                    <a id="like">
+                        <i id="like icon">&hearts;</i> {{ .Meta.Likes }} Likes
+                    </a>
+                {{ end }}
+                {{ if .Meta.Src }}
+                    <a id="data-source" href="{{ .Meta.Src }}">
+                        <i id="src-icon">&#9745;</i>
+                        Source
+                        <a>
+
+                        {{ end }}
             </div>
         </div>
     </div> 

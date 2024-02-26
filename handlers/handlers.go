@@ -4,6 +4,7 @@ import (
 	"beautybargains/models"
 	"beautybargains/services"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"math"
@@ -660,17 +661,52 @@ func (h *Handler) VerifySubscription(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	websiteName := vars["websiteName"]
+
+	params := services.GetBannerPromotionsParams{
+		SortByTimestampDesc: true,
+	}
+
+	if websiteName != "" {
+		params.WebsiteName = websiteName
+	}
+
+	promos, err := h.s.GetBannerPromotions(params)
+	if err != nil {
+		log.Printf("Error: %v", err)
+		h.InternalError(w, r)
+		return
+	}
 
 	events := []models.Event{}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < len(promos); i++ {
 		e := models.DummyEvent
-		if i == 3 {
-			e.Content.ExtraImages = nil
+
+		// Step 1: Calculate Time Difference
+		timeDiff := time.Since(promos[i].Timestamp)
+
+		// Step 2: Determine Unit (Days or Hours)
+		var unit string
+		var magnitude int
+
+		hours := int(timeDiff.Hours())
+		days := hours / 24
+
+		if days > 0 {
+			unit = "Days"
+			magnitude = days
+		} else {
+			unit = "Hours"
+			magnitude = hours
 		}
 
-		if i == 5 {
-			e.Content.ExtraText = nil
-		}
+		// Step 3: Format String
+		e.Content.TimeElapsed = fmt.Sprintf("%d %s ago", magnitude, unit)
+		e.Meta.Src = &promos[i].BannerURL
+		e.Content.ExtraText = &promos[i].Description
+		e.Content.Summary = fmt.Sprintf("posted an update about %s", promos[i].Website.WebsiteName)
+		e.Content.ExtraImages = nil
 		events = append(events, e)
 	}
 
@@ -681,7 +717,7 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 
 	b := newBasePageData(r)
 
-	err := h.tmpl.ExecuteTemplate(w, "feedpage", FeedPageData{b, events})
+	err = h.tmpl.ExecuteTemplate(w, "feedpage", FeedPageData{b, events})
 	if err != nil {
 		log.Printf("Error: %v", err)
 	}

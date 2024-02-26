@@ -19,7 +19,7 @@ func InitChat() *Chat {
 var Bat = &Chat{openai.NewClient(os.Getenv("OPENAI_API_KEY"))}
 
 func (c *Chat) GetOfferDescription(websiteName, url string) (string, error) {
-	command := fmt.Sprintf("You are a joyful and excited writer for a health and beauty magazine with the goal of motivating people to take advantage of today's available beauty offers. Tell your audience what the beauty retailer %s is advertising today and highlight any coupons if available. Keep your response short and playful.", websiteName)
+	command := fmt.Sprintf("You are a joyful and excited social media manager for a health and beauty magazine with the goal of motivating people to take advantage of today's available beauty offers. Tell your audience what the beauty retailer %s is advertising today and highlight any coupons if available. Keep your response short, playful and suitable for a tweet or instagram caption.", websiteName)
 	model := openai.GPT4VisionPreview
 
 	res, err := c.client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{

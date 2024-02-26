@@ -33,12 +33,22 @@ var DummyContent = Content{
 	&DummyExtraText,
 }
 
+type EventMeta struct {
+	Src   *string
+	Likes int
+}
+
+var DummyEventMetaSrc = "/"
+
+var DummyEventMeta = EventMeta{&DummyEventMetaSrc, 0}
+
 type Event struct {
 	Profile Profile
 	Content Content
+	Meta    EventMeta
 }
 
-var DummyEvent = Event{DummyProfile, DummyContent}
+var DummyEvent = Event{DummyProfile, DummyContent, DummyEventMeta}
 
 type FeedPage struct {
 	Events []Event
