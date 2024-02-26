@@ -659,6 +659,35 @@ func (h *Handler) VerifySubscription(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
+
+	events := []models.Event{}
+	for i := 0; i < 10; i++ {
+		e := models.DummyEvent
+		if i == 3 {
+			e.Content.ExtraImages = nil
+		}
+
+		if i == 5 {
+			e.Content.ExtraText = nil
+		}
+		events = append(events, e)
+	}
+
+	type FeedPageData struct {
+		BasePageData
+		Events []models.Event
+	}
+
+	b := newBasePageData(r)
+
+	err := h.tmpl.ExecuteTemplate(w, "feedpage", FeedPageData{b, events})
+	if err != nil {
+		log.Printf("Error: %v", err)
+	}
+
+}
+
 func (h *Handler) Promotions(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	websiteName := vars["websiteName"]

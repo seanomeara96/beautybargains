@@ -1,0 +1,9 @@
+{{ define "feed" }}
+    <section class=" bg-l-brown">
+        <div id="feed" class="p-4 m-auto max-w-2xl">
+            {{ range .Events}}
+                {{ template "event" . }}
+            {{ end }}
+        </div>
+    </section>
+{{ end }}
