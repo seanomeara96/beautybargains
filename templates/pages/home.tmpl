@@ -9,8 +9,67 @@
     {{/* 5. Desired Action */}}
     {{/* 6. Engaging Storytelling */}}
 
-        
-    {{ template "subscriptionform" }}
+    <section class="md:flex md:h-3/4 bg-l-brown">
+        <div class="md:w-2/4 flex flex-col justify-center items-center py-8">
+            <div class="max-w-md m-auto mx-8">
+                <h1 class="text-6xl mb-8">Beauty <br> Bargains.ie</h1>
+                <p>We're keeping an eye on all your favourite beauty stores for the latest deals, offers and price drops so you dont have to.</p>
+                <div class="border-l-2 border-orange pl-4 mt-6">
+                    {{/*<span class="block text-orange mb-4">&#9733;&#9733;&#9733;&#9733;&#9733;</span>*/}}
+                    <p class="mb-4">"BeautyFeatures is doing 20% Off Kérastase, their Brand of the Month"</p>
+                    <strong class="block">Sophie Devlin</strong>
+                    <span class="block">Content Specialist</span>
+                    <a class="py-2 px-4 my-4 bg-black text-white rounded inline-block" href="/feed">View Feed</a>
+                </div>
+            </div>
+        </div>
+        <div class="md:w-2/4 h-2/4 md:h-full">
+            <img class="h-full object-left object-cover" src="/images/liana-agron69e2c.png" alt="">
+        </div>
+    </section> 
 
+
+    <section class="max-w-7xl md:h-3/4 mx-auto p-8">
+        <div class="md:flex md:h-full md:items-center">
+            <div class="md:w-1/2 h-full flex flex-col justify-center py-8">
+                <img loading="lazy" class="h-60 md:h-1/2 w-full pr-16 max-w-lg object-center object-cover z-10" src="/images/zoey-agron7625a.png" alt="">
+                <div class="h-32 w-full -mt-16 max-w-lg -z-10 bg-l-brown"></div>
+            </div>
+            <div class="md:w-2/4 mx-8 max-w-xl m-auto">
+                <span class="block">About us</span>
+                <h2 class="text-6xl mb-8">Bargains For Everybody</h2>
+                <p class="mb-8" >We have a range of products to treat and protect your skin including: Skin care products for the face, neck and scalp. We have a range of products to treat and protect your skin including: Skin care products for the face, neck and scalp. We have a range of products to treat and protect your skin including.
+                </p>
+                <p>We have a range of products to treat and protect your skin including: Skin care products for the face, neck and scalp.We have a range of products to treat and protect your skin including: Skin care products for the face, neck and scalp.</p>
+            </div>
+        </div>
+    </section> 
+
+
+    <section class="md:grid grid-cols-3 p-8 max-w-7xl mx-auto">
+        <div class="grid gap-2 grid-cols-4 md:grid-cols-2 md:grid-rows-2">
+            <div class="p-2 md:p-4" style="border: 1px solid brown;"><img src="https://develop.implicitdev.com/images/odette-jenner905d7.png" alt=""></div>
+            <div class="p-2 md:p-4" style="border: 1px solid brown;"><img src="https://develop.implicitdev.com/images/diana-justiceef1d7.png" alt=""></div>
+            <div class="p-2 md:p-4" style="border: 1px solid brown;"><img src="https://develop.implicitdev.com/images/zoey-agron7625a.png" alt=""></div>
+            <div class="p-2 md:p-4" style="border: 1px solid brown;"><img src="https://develop.implicitdev.com/images/florence-agron40942.png" alt=""></div>
+        </div>
+        <div class="flex flex-col gap-4 items-center justify-center p-10">
+            <h2 class="text-center text-2xl">Meet the Team</h2>
+            <ul class="p-0 m-0 w-1/2 text-center text-lg">
+                <li class="border-b-2">Lily</li>
+                <li class="border-b-2">Sophie</li>
+                <li class="border-b-2">Kim</li>
+                <li class="border-b-2">Fiona</li>
+                <li class="border-b-2">Lucy</li>
+                <li class="border-b-2">Anna</li>
+            </ul>
+        </div>
+        <div class="grid gap-2 grid-cols-4 md:grid-cols-2 md:grid-rows-2">
+            <div class="p-2 md:p-4" style="border: 1px solid brown;"><img src="https://develop.implicitdev.com/images/odette-jenner905d7.png" alt=""></div>
+            <div class="p-2 md:p-4" style="border: 1px solid brown;"><img src="https://develop.implicitdev.com/images/diana-justiceef1d7.png" alt=""></div>
+            <div class="p-2 md:p-4" style="border: 1px solid brown;"><img src="https://develop.implicitdev.com/images/zoey-agron7625a.png" alt=""></div>
+            <div class="p-2 md:p-4" style="border: 1px solid brown;"><img src="https://develop.implicitdev.com/images/florence-agron40942.png" alt=""></div>
+        </div>
+    </section>
     {{ template "footer" . }}
 {{ end }}

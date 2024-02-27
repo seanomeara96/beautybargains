@@ -2,14 +2,55 @@ package main
 
 import (
 	"beautybargains/repositories"
+	"beautybargains/services"
+	"database/sql"
 	"log"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
+	// get all posts
+	db, err := sql.Open("sqlite3", "data")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
 
+	service := services.NewService(db)
+
+	promotions, err := service.GetBannerPromotions(services.GetBannerPromotionsParams{})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// asign a random model to each post
 	personas, pdb, err := repositories.DefaultPersonaRepoConnection()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pdb.Close()
+
+	for _, promotion := range promotions {
+
+		randomPersona, err := personas.GetRandom()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		promotion.AuthorID = randomPersona.ID
+
+		_, err = service.UpdateBannerPromotion(promotion)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+	}
+
+}
+
+/* Clean up
+personas, pdb, err := repositories.DefaultPersonaRepoConnection()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,4 +88,5 @@ func main() {
 		}
 	}
 
-}
+
+*/

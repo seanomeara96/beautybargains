@@ -40,6 +40,7 @@ func NewRouter(mode models.Mode, handler *handlers.Handler) *mux.Router {
 	if mode == models.Dev {
 
 		r.HandleFunc("/feed/", handler.Feed).Methods(http.MethodGet)
+		r.HandleFunc("/feed/{websiteName}/", handler.Feed).Methods(http.MethodGet)
 		r.HandleFunc("/websites/{website_id}/products/", handler.GetWebsiteProducts).Methods(http.MethodGet)
 		r.HandleFunc("/products/update/", handler.GetUpdateProductsForm).Methods(http.MethodGet)
 		r.HandleFunc("/products/update/", handler.ProcessUpdateProductsForm).Methods(http.MethodPost)

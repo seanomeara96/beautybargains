@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+func (s *Service) UpdateBannerPromotion(p models.BannerPromotion) (*models.BannerPromotion, error) {
+	q := `UPDATE banner_promotions SET author_id = ?, bannerURL = ?, websiteID = ?, description = ?, link = ? WHERE id = ?`
+	_, err := s.db.Exec(q, p.AuthorID, p.BannerURL, p.WebsiteID, p.Description, p.Link, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 type GetBannerPromotionsParams struct {
 	WebsiteName         string
 	SortByTimestampDesc bool
