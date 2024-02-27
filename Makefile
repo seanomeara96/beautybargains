@@ -2,7 +2,7 @@ run:
 	npx webpack --config webpack.config.js && go run ./cmd/server/ -port 3000
 
 style:
-	npx tailwindcss -i ./assets/src/input.css -o ./assets/dist/output.css
+	npx tailwindcss -i ./assets/src/input.css -o ./assets/dist/output.css --minify
 
 dev: run style
 
