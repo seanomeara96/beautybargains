@@ -12,7 +12,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "chart.js": "^4.4.1"
+    "chart.js": "^4.4.1",
+    "tailwindcss": "^3.4.1"
   },
   "devDependencies": {
     "eslint": "^8.56.0",

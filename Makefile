@@ -1,6 +1,10 @@
 run:
 	npx webpack --config webpack.config.js && go run ./cmd/server/ -port 3000
 
+style:
+	npx tailwindcss -i ./assets/src/input.css -o ./assets/dist/output.css
+
+dev: run style
 
 scrape: scrape2 scrape3
 
