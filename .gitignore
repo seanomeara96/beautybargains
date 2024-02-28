@@ -4,4 +4,4 @@ data
 data-journal
 *.log
 images/
-images.db
+*.db

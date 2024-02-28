@@ -1,5 +1,5 @@
 {{ define "event" }}
-    <div id="event" class="border-l-2 border-orange flex w-full my-4 bg-white">
+    <div id="event" class="border-l-2 border-orange flex w-full mb-4 bg-white">
         <div id="label" class="block flex-shrink-0 w-14 h-auto self-stretch">
             <div class="w-full aspect-square rounded-full overflow-hidden m-1"><img class="w-full h-full object-cover object-center" src="/{{ .Profile.Photo }}"></div>
         </div>
@@ -46,9 +46,8 @@
                     <a id="data-source" href="{{ .Meta.Src }}">
                         <i id="src-icon">&#9745;</i>
                         Source
-                        <a>
-
-                        {{ end }}
+                     </a>
+                 {{ end }}
             </div>
         </div>
     </div> 

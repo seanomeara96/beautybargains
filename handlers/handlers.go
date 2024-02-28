@@ -725,14 +725,22 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 		events = append(events, e)
 	}
 
+	websites, err := h.s.GetAllWebsites(10, 0)
+	if err != nil {
+		w.WriteHeader(500)
+		return
+	}
+
 	type FeedPageData struct {
 		BasePageData
-		Events []models.Event
+		Events   []models.Event
+		Websites []models.Website
+		Trending []models.Trending
 	}
 
 	b := newBasePageData(r)
 
-	err = h.tmpl.ExecuteTemplate(w, "feedpage", FeedPageData{b, events})
+	err = h.tmpl.ExecuteTemplate(w, "feedpage", FeedPageData{b, events, websites, models.DummyTrending})
 	if err != nil {
 		log.Printf("Error: %v", err)
 	}

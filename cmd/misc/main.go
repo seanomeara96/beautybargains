@@ -1,10 +1,12 @@
 package main
 
 import (
+	"beautybargains/models"
 	"beautybargains/repositories"
 	"beautybargains/services"
 	"database/sql"
 	"log"
+	"regexp"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -24,29 +26,39 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// asign a random model to each post
-	personas, pdb, err := repositories.DefaultPersonaRepoConnection()
+	hashtags, hdb, err := repositories.DefaultHashtagRepoConnection()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer pdb.Close()
+	defer hdb.Close()
 
-	for _, promotion := range promotions {
+	// Define a regular expression pattern for hashtags
+	pattern := regexp.MustCompile(`#(\w+)`)
 
-		randomPersona, err := personas.GetRandom()
-		if err != nil {
-			log.Fatal(err)
+	for _, p := range promotions {
+		// Find all matches in the post
+		matches := pattern.FindAllStringSubmatch(p.Description, -1)
+
+		// Extract hashtags from the matches
+		for _, match := range matches {
+			for _, phrase := range match {
+				exists, err := hashtags.DoesHashtagExist(phrase)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				if exists {
+					// add the relationship to the database
+				} else {
+					_, err := hashtags.Insert(&models.Hashtag{Phrase: phrase})
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+			}
+
 		}
-
-		promotion.AuthorID = randomPersona.ID
-
-		_, err = service.UpdateBannerPromotion(promotion)
-		if err != nil {
-			log.Fatal(err)
-		}
-
 	}
-
 }
 
 /* Clean up

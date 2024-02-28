@@ -49,7 +49,3 @@ type Event struct {
 }
 
 var DummyEvent = Event{DummyProfile, DummyContent, DummyEventMeta}
-
-type FeedPage struct {
-	Events []Event
-}

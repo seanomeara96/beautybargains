@@ -93,3 +93,22 @@ type BannerPromotion struct {
 	Timestamp   time.Time
 	AuthorID    int // supposed to correspond with a persona id
 }
+
+type Hashtag struct {
+	ID     int
+	Phrase string
+}
+
+type Trending struct {
+	Category  string
+	Phrase    string
+	PostCount int
+}
+
+var DummyTrending = []Trending{
+	Trending{"Brand", "#this", 2},
+	Trending{"Brand", "#that", 2},
+	Trending{"Brand", "#the", 2},
+	Trending{"Brand", "#other", 2},
+	Trending{"Brand", "#thing", 2},
+}
