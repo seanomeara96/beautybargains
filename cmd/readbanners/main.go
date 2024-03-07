@@ -22,13 +22,13 @@ func main() {
 
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error loading .env file. %v", err)
 		return
 	}
 
 	db, err := sql.Open("sqlite3", "data")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error connecting to database in main. %v", err)
 		return
 	}
 	defer db.Close()
@@ -44,23 +44,25 @@ func main() {
 
 	websites, err := srv.GetAllWebsites(250, 0)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error getting all websites. %v", err)
 		return
 	}
 
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS banner_promotions(
+	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS banner_promotions(
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		websiteID INTEGER NOT NULL,
 		bannerURL INTEGER NOT NULL,
 		description TEXT NOT NULL,
 		timestamp DATETIME NOT NULL,
 		link TEXT
-	)`)
+	)`); err != nil {
+		log.Fatalf("Error creating table for banner promotions. %v", err)
+	}
 
 	for _, website := range websites {
 		bannerURLs, err := ExtractBannerURLs(website)
 		if err != nil {
-			log.Println(err)
+			log.Printf("Error extracting banner urls from website. %v", err)
 			continue
 		}
 
@@ -82,9 +84,17 @@ func main() {
 		}
 
 		for _, url := range uniqueBanners {
+
+			if url == "" {
+				continue
+			}
+
 			description, err := chat.GetOfferDescription(website.WebsiteName, url)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf(`Error getting offer description from chatgpt. 
+				WebsiteName: %s,
+				URL: %s,
+				%v`, website.WebsiteName, url, err)
 				return
 			}
 
@@ -93,15 +103,20 @@ func main() {
 				log.Printf("Warning: could not get author from repo. %v", err)
 			}
 
+			// I picked 8 randomly for author id
 			authorID := 8
 			if author != nil {
 				authorID = author.ID
 			}
 
 			err = srv.SaveBannerPromotion(website.WebsiteID, url, authorID, description, time.Now())
-
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf(`Error saving banner promotion. 
+				Website id: %d,
+				URL: %s,
+				AuthorID: %d,
+				Description: %s,
+				%v`, website.WebsiteID, url, authorID, description, err)
 				return
 			}
 		}

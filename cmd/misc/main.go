@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"log"
 	"regexp"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -15,7 +16,7 @@ func main() {
 	// get all posts
 	db, err := sql.Open("sqlite3", "data")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error connecting to database from main %v", err)
 	}
 	defer db.Close()
 
@@ -28,7 +29,7 @@ func main() {
 
 	hashtags, hdb, err := repositories.DefaultHashtagRepoConnection()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error connecting to default hashtag repository. %v", err)
 	}
 	defer hdb.Close()
 
@@ -41,23 +42,34 @@ func main() {
 
 		// Extract hashtags from the matches
 		for _, match := range matches {
-			for _, phrase := range match {
-				exists, err := hashtags.DoesHashtagExist(phrase)
+			if len(match) < 2 {
+				log.Fatal("match was less than 2")
+
+			}
+			phrase := strings.ToLower(match[1])
+			exists, err := hashtags.DoesHashtagExist(phrase)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if exists {
+				hashtag, err := hashtags.GetByPhrase(phrase)
 				if err != nil {
 					log.Fatal(err)
 				}
-
-				if exists {
-					// add the relationship to the database
-				} else {
-					_, err := hashtags.Insert(&models.Hashtag{Phrase: phrase})
-					if err != nil {
-						log.Fatal(err)
-					}
+				err = hashtags.SaveRelationship(p.ID, hashtag.ID)
+				if err != nil {
+					log.Fatal(err)
+				}
+				// add the relationship to the database
+			} else {
+				_, err := hashtags.Insert(&models.Hashtag{Phrase: phrase})
+				if err != nil {
+					log.Fatal(err)
 				}
 			}
-
 		}
+
 	}
 }
 
