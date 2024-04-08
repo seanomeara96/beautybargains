@@ -70,14 +70,14 @@ func (s *Repository) InsertBrand(brand models.Brand) (int, error) {
 	return int(id), nil
 }
 
-func (s *Repository) DoesBrandExist(brandName string) (bool, error) {
+func (s *Repository) CountByName(brandName string) (int, error) {
 	q := `SELECT count(id) FROM Brands WHERE name = ?`
 	var count int
 	err := s.db.QueryRow(q, brandName).Scan(&count)
 	if err != nil {
-		return false, err
+		return -1, err
 	}
-	return count > 0, nil
+	return count, nil
 }
 
 func (s *Repository) GetBrandByName(brandName string) (models.Brand, error) {

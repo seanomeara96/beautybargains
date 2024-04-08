@@ -3,6 +3,7 @@ package pricedatarepo
 import (
 	"beautybargains/internal/models"
 	"database/sql"
+	"fmt"
 )
 
 type Repository struct {
@@ -15,22 +16,132 @@ func New(db *sql.DB) *Repository {
 
 // Create a new price data entry and insert it into the PriceData table
 func (s *Repository) CreatePriceData(priceData models.PriceData) error {
-	_, err := s.db.Exec("INSERT INTO PriceData (ProductID, Price, Currency, Timestamp, Gtin12, Gtin13, Gtin14, SKU, Name, Image) VALUES (?, ?, ?, ?, ?, ?, ? ,? ,? ,?)",
-		priceData.ProductID, priceData.Price, priceData.Currency, priceData.Timestamp, priceData.Gtin12, priceData.Gtin13, priceData.Gtin14, priceData.SKU, priceData.Name, priceData.Image)
-	if err != nil {
+
+	q := `INSERT INTO PriceData (
+		ProductID, 
+		Price, 
+		Currency, 
+		Timestamp, 
+		Gtin12, 
+		Gtin13, 
+		Gtin14, 
+		SKU, 
+		Name, 
+		Image
+	) VALUES 
+		(?, ?, ?, ?, ?, ?, ? ,? ,? ,?)`
+
+	if _, err := s.db.Exec(q,
+		priceData.ProductID,
+		priceData.Price,
+		priceData.Currency,
+		priceData.Timestamp,
+		priceData.Gtin12,
+		priceData.Gtin13,
+		priceData.Gtin14,
+		priceData.SKU,
+		priceData.Name,
+		priceData.Image,
+	); err != nil {
 		return err
 	}
 	return nil
 }
 
+func (r *Repository) CountByProductID(id int) (int, error) {
+	q := `SELECT
+		count(PriceID)
+	FROM
+		PriceData
+	WHERE
+		ProductID = ?`
+
+	var count int
+	if err := r.db.QueryRow(q, id).Scan(&count); err != nil {
+		return -1, fmt.Errorf("Error querying count by product id. %w", err)
+	}
+	return count, nil
+}
+
 // Retrieve price data by its ID from the PriceData table
 func (s *Repository) GetPriceData(productID, priceID int) (models.PriceData, error) {
+	q := `SELECT 
+		PriceID, 
+		ProductID, 
+		Price, 
+		Currency, 
+		Timestamp, 
+		Gtin12, 
+		Gtin13, 
+		Gtin14, 
+		SKU, 
+		Name, 
+		Image 
+	FROM 
+		PriceData 
+	WHERE 
+		PriceID = ? 
+	AND 
+		ProductID = ?`
+
 	var priceData models.PriceData
-	err := s.db.QueryRow("SELECT PriceID, ProductID, Price, Currency, Timestamp, Gtin12, Gtin13, Gtin14, SKU, Name, Image FROM PriceData WHERE PriceID = ? AND ProductID = ?", priceID, productID).
-		Scan(&priceData.PriceID, &priceData.ProductID, &priceData.Price, &priceData.Currency, &priceData.Timestamp, &priceData.Gtin12, &priceData.Gtin13, &priceData.Gtin14, &priceData.SKU, &priceData.Name, &priceData.Image)
-	if err != nil {
+
+	if err := s.db.QueryRow(q, priceID, productID).
+		Scan(
+			&priceData.PriceID,
+			&priceData.ProductID,
+			&priceData.Price,
+			&priceData.Currency,
+			&priceData.Timestamp,
+			&priceData.Gtin12,
+			&priceData.Gtin13,
+			&priceData.Gtin14,
+			&priceData.SKU,
+			&priceData.Name,
+			&priceData.Image); err != nil {
 		return models.PriceData{}, err
 	}
+
+	return priceData, nil
+}
+func (s *Repository) GetLatestPrice(productID int) (models.PriceData, error) {
+	q := `SELECT 
+		PriceID, 
+		ProductID, 
+		Price, 
+		Currency, 
+		Timestamp,
+		MAX(Timestamp) as Latest, 
+		Gtin12, 
+		Gtin13, 
+		Gtin14, 
+		SKU, 
+		Name, 
+		Image 
+	FROM 
+		PriceData 
+	WHERE
+		ProductID = ?`
+
+	var priceData models.PriceData
+	var temp string
+	if err := s.db.QueryRow(q, productID).
+		Scan(
+			&priceData.PriceID,
+			&priceData.ProductID,
+			&priceData.Price,
+			&priceData.Currency,
+			&priceData.Timestamp,
+			&temp,
+			&priceData.Gtin12,
+			&priceData.Gtin13,
+			&priceData.Gtin14,
+			&priceData.SKU,
+			&priceData.Name,
+			&priceData.Image); err != nil {
+		return models.PriceData{}, err
+	}
+
 	return priceData, nil
 }
 

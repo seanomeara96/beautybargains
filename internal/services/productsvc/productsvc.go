@@ -123,10 +123,11 @@ func (s *Service) FilterNewProductURLs(urls []string) ([]string, error) {
 
 	for i := range urls {
 		url := urls[i]
-		productExists, err := s.repos.products.DoesProductExist(url)
+		count, err := s.repos.products.CountByURL(url)
 		if err != nil {
 			return newURLs, err
 		}
+		productExists := count > 1
 		if !productExists {
 			newURLs = append(newURLs, url)
 		}

@@ -1,48 +1,20 @@
 package main
 
 import (
-	"beautybargains/logger"
-	"beautybargains/models"
-	"beautybargains/scrapers"
-	"beautybargains/services"
+	"beautybargains/internal/logger"
+	"beautybargains/internal/repositories/brandrepo"
+	"beautybargains/internal/repositories/pricedatarepo"
+	"beautybargains/internal/repositories/productrepo"
+	"beautybargains/internal/scrapers"
 	"database/sql"
 	"flag"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
-
-func CountProductsToCrawl(db *sql.DB, websiteID int) (int, error) {
-	var count int
-	err := db.QueryRow("SELECT count(p.ProductID) FROM Products p LEFT JOIN (SELECT ProductID, MAX(timestamp) AS LatestTimestamp FROM PriceData GROUP BY ProductID) pd ON p.ProductID = pd.ProductID WHERE p.Error = false AND websiteID = ? AND pd.LatestTimestamp < datetime('now', '-12 hours')", websiteID).Scan(&count)
-	if err != nil {
-		return 0, err
-	}
-	return count, nil
-}
-
-func GetNextProducts(db *sql.DB, websiteID int) ([]models.Product, error) {
-	var products []models.Product
-	rows, err := db.Query("SELECT p.ProductID, ProductName, WebsiteID, BrandID, Description, URL FROM Products p LEFT JOIN (SELECT ProductID, MAX(timestamp) AS LatestTimestamp FROM PriceData GROUP BY ProductID) pd ON p.ProductID = pd.ProductID WHERE p.Error = false AND websiteID = ? AND pd.LatestTimestamp < datetime('now', '-12 hours') LIMIT 1", websiteID)
-	if err != nil {
-		return products, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var product models.Product
-		err = rows.Scan(&product.ProductID, &product.ProductName, &product.WebsiteID, &product.BrandID, &product.Description, &product.URL)
-		if err != nil {
-			return products, err
-		}
-		products = append(products, product)
-	}
-
-	return products, nil
-
-}
 
 func main() {
 
@@ -91,68 +63,93 @@ func main() {
 		return
 	}
 
-	db, err := sql.Open("sqlite3", "data")
+	productDB, err := sql.Open("sqlite3", "data/products.db")
 	if err != nil {
-		log.Error(fmt.Sprintf("could not connect to db: %v", err))
-		return
+		panic(err)
 	}
-	defer db.Close()
+	defer productDB.Close()
+	productRepo := productrepo.New(productDB)
 
-	srv := services.NewService(db)
-	scraper := scrapers.NewScraper(srv)
-
-	/*
-		Identify products that havent been crawled in x amount of time
-	*/
-	count, err := CountProductsToCrawl(db, websiteID)
+	pricedataDB, err := sql.Open("sqlite3", "data/pricedata.db")
 	if err != nil {
-		log.Error(fmt.Sprintf("could not count products left to crawl: %v", err))
-		return
+		panic(err)
+	}
+	defer pricedataDB.Close()
+	pricedataRepo := pricedatarepo.New(pricedataDB)
+
+	brandDB, err := sql.Open("sqlite3", "data/brands.db")
+	if err != nil {
+		panic(err)
+	}
+	defer brandDB.Close()
+	brandRepo := brandrepo.New(brandDB)
+
+	scraper := scrapers.NewScraper(productRepo, pricedataRepo, brandRepo)
+
+	limit := 50
+	offset := 1
+	productCount, err := productRepo.CountByWebsiteID(websiteID)
+	if err != nil {
+		panic(err)
 	}
 
-	/*
-		While there are products retrieve the necessary info
-	*/
-	for count > 0 {
-		/*
-			Get all the products that need crawling
-		*/
-		products, err := GetNextProducts(db, websiteID)
+	maxPages := RoundUpToInt(float64(productCount) / float64(limit))
+	for i := 0; i < maxPages; i++ {
+		offset = (i * limit)
+		products, err := productRepo.GetWebsiteProducts(websiteID, limit, offset)
 		if err != nil {
-			log.Error(fmt.Sprintf("could not get next product to crawl: %v", err))
-			return
+			panic(fmt.Errorf("Could not get website products. %w", err))
 		}
-		/*
-			For each product save the product data
-		*/
+
 		for _, product := range products {
-			err = scraper.SaveProductData(product.WebsiteID, product.URL)
+			countPrices, err := pricedataRepo.CountByProductID(product.ProductID)
 			if err != nil {
-				/*
-					If fail to save product data, save reason
-				*/
-				log.Error(fmt.Sprintf("could not save product data %v", err))
-				/*
-					If saving error fails, log the error
-				*/
-				serr := srv.SaveProductError(product.ProductID, true, err.Error())
-				if serr != nil {
-					log.Error(fmt.Sprintf("could not save error msg to product: %v", err))
-					return
+				panic(err)
+			}
+			hasPrices := countPrices > 0
+			if hasPrices {
+				price, err := pricedataRepo.GetLatestPrice(product.ProductID)
+				if err != nil {
+					panic(err)
+				}
+				if MoreThanNDaysOld(12, price.Timestamp) {
+					err = scraper.SaveProductData(product.WebsiteID, product.URL)
+					if err != nil {
+						/*
+							If fail to save product data, save reason
+						*/
+						log.Warning(fmt.Sprintf("could not save product data %v", err))
+						/*
+							If saving error fails, log the error
+						*/
+						serr := productRepo.SaveProductError(product.ProductID, true, err.Error())
+						if serr != nil {
+							log.Error(fmt.Sprintf("could not save error msg to product: %v", err))
+						}
+					}
+				}
+			} else {
+				err = scraper.SaveProductData(product.WebsiteID, product.URL)
+				if err != nil {
+					/*
+						Cant save product and has ne previous prices, just delete the product
+					*/
+					err := productRepo.DeleteProduct(product.ProductID)
+					if err != nil {
+						panic(err)
+					}
 				}
 			}
-			log.Info(fmt.Sprintf("Successfully saved product: %d - %s", product.ProductID, product.ProductName))
 		}
-		/*
-			Update count of products that need to be crawled
-		*/
-		count, err = CountProductsToCrawl(db, websiteID)
-		if err != nil {
-			panic(err)
-		}
-		/*
-			Precautionary sleep to help avoid rate limits
-		*/
-		time.Sleep(1500 * time.Millisecond)
 	}
+}
+
+func RoundUpToInt(n float64) int {
+	return int(math.Round(n/2) * 2)
+}
+
+func MoreThanNDaysOld(n time.Duration, recordedAt time.Time) bool {
+	nDays := n * 24 * time.Hour            // 27 now
+	duration := time.Now().Sub(recordedAt) // 15 - 1 = 13
+	return duration > nDays
 }

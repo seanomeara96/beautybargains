@@ -39,7 +39,7 @@ func (s *Repository) GetByID(websiteID int) (*models.Website, error) {
 // Retrieve a website by its ID from the Websites table
 func (s *Repository) GetByName(websiteName string) (*models.Website, error) {
 	var website models.Website
-	err := s.db.QueryRow("SELECT WebsiteID, WebsiteName, URL, Country FROM Websites WHERE WebsiteName = ?", websiteName).
+	err := s.db.QueryRow("SELECT WebsiteID, WebsiteName, URL, Country FROM Websites WHERE LOWER(WebsiteName) = ?", websiteName).
 		Scan(&website.WebsiteID, &website.WebsiteName, &website.URL, &website.Country)
 	if err != nil {
 		return nil, err

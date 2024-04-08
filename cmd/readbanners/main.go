@@ -1,9 +1,11 @@
 package main
 
 import (
-	"beautybargains/models"
-	"beautybargains/repositories"
-	"beautybargains/services"
+	"beautybargains/internal/models"
+	"beautybargains/internal/repositories/personarepo"
+	"beautybargains/internal/repositories/postrepo"
+	"beautybargains/internal/repositories/websiterepo"
+	"beautybargains/internal/services/chatsvc"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -26,37 +28,33 @@ func main() {
 		return
 	}
 
-	db, err := sql.Open("sqlite3", "data")
-	if err != nil {
-		log.Fatalf("Error connecting to database in main. %v", err)
-		return
-	}
-	defer db.Close()
+	chat := chatsvc.InitChat()
 
-	chat := services.InitChat()
-	srv := services.NewService(db)
-
-	personaRepo, pdb, err := repositories.DefaultPersonaRepoConnection()
+	personaDB, err := sql.Open("sqlite3", "data/models.db")
 	if err != nil {
 		log.Fatalf("Could not connect to persona repo. %v", err)
 	}
-	defer pdb.Close()
+	defer personaDB.Close()
+	personaRepo := personarepo.New(personaDB)
 
-	websites, err := srv.GetAllWebsites(250, 0)
+	websiteDB, err := sql.Open("sqlite3", "data/websites.db")
+	if err != nil {
+		log.Fatalf("Could not connect to website database. %v", err)
+	}
+	defer websiteDB.Close()
+	websiteRepo := websiterepo.New(websiteDB)
+
+	postDB, err := sql.Open("sqlite3", "data/posts.db")
+	if err != nil {
+		log.Fatalf("Could not connect to post db. %v", err)
+	}
+	defer postDB.Close()
+	postRepo := postrepo.New(postDB)
+
+	websites, err := websiteRepo.GetAllWebsites(1000, 0)
 	if err != nil {
 		log.Fatalf("Error getting all websites. %v", err)
 		return
-	}
-
-	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS banner_promotions(
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		websiteID INTEGER NOT NULL,
-		bannerURL INTEGER NOT NULL,
-		description TEXT NOT NULL,
-		timestamp DATETIME NOT NULL,
-		link TEXT
-	)`); err != nil {
-		log.Fatalf("Error creating table for banner promotions. %v", err)
 	}
 
 	for _, website := range websites {
@@ -69,11 +67,13 @@ func main() {
 		uniqueBanners := []string{}
 		for _, u := range bannerURLs {
 
-			bannerExists, err := srv.DoesBannerPromotionExist(u)
+			bannerCount, err := postRepo.CountBySrc(u)
 			if err != nil {
 				log.Printf("Error checking existance of banner %v", err)
 				return
 			}
+
+			bannerExists := bannerCount > 0
 
 			if bannerExists {
 				continue
@@ -109,7 +109,7 @@ func main() {
 				authorID = author.ID
 			}
 
-			err = srv.SaveBannerPromotion(website.WebsiteID, url, authorID, description, time.Now())
+			err = postRepo.Insert(website.WebsiteID, url, authorID, description, time.Now())
 			if err != nil {
 				log.Fatalf(`Error saving banner promotion. 
 				Website id: %d,

@@ -1,8 +1,10 @@
 package scrapers
 
 import (
-	"beautybargains/models"
-	"beautybargains/services"
+	"beautybargains/internal/models"
+	"beautybargains/internal/repositories/brandrepo"
+	"beautybargains/internal/repositories/pricedatarepo"
+	"beautybargains/internal/repositories/productrepo"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -58,12 +60,18 @@ type ProductOffers struct {
 	URL          string `json:"url"`
 }
 
-type Scraper struct {
-	service *services.Service
+type repos struct {
+	products *productrepo.Repository
+	prices   *pricedatarepo.Repository
+	brands   *brandrepo.Repository
 }
 
-func NewScraper(service *services.Service) *Scraper {
-	return &Scraper{service}
+type Scraper struct {
+	repos repos
+}
+
+func NewScraper(products *productrepo.Repository, prices *pricedatarepo.Repository, brands *brandrepo.Repository) *Scraper {
+	return &Scraper{repos{products, prices, brands}}
 }
 
 func (s *Scraper) SaveProductData(websiteID int, url string) error {
@@ -141,13 +149,14 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 		If brand string is not empty then either asociate it with an existing brand or create a new one
 	*/
 	if brand != "" {
-		brandExists, err := s.service.DoesBrandExist(strings.ToLower(brand))
+		brandCount, err := s.repos.brands.CountByName(strings.ToLower(brand))
 		if err != nil {
 			return err
 		}
+		brandExists := brandCount > 0
 		//if brand exists get ID else create and return ID
 		if brandExists {
-			brand, err := s.service.GetBrandByName(strings.ToLower(brand))
+			brand, err := s.repos.brands.GetBrandByName(strings.ToLower(brand))
 			if err != nil {
 				return err
 			}
@@ -157,7 +166,7 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 				Name: strings.ToLower(brand),
 				Path: url.QueryEscape(strings.ToLower(brand)),
 			}
-			id, err := s.service.InsertBrand(brand)
+			id, err := s.repos.brands.InsertBrand(brand)
 			if err != nil {
 				return err
 			}
@@ -165,16 +174,17 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 		}
 	}
 
-	productExists, err := s.service.DoesProductExist(webURL)
+	productCount, err := s.repos.products.CountByURL(webURL)
 	if err != nil {
 		return err
 	}
+	productExists := productCount > 0
 	var productID int
 	/*
 		If product exists, update it else create a new one
 	*/
 	if productExists {
-		product, err := s.service.GetProductByURL(webURL)
+		product, err := s.repos.products.GetByURL(webURL)
 		if err != nil {
 			return err
 		}
@@ -187,7 +197,7 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 		productUpdates.Image = image
 		productUpdates.BrandID = brandID
 
-		err = s.service.UpdateProduct(productUpdates)
+		err = s.repos.products.UpdateProduct(productUpdates)
 		if err != nil {
 			return err
 		}
@@ -201,7 +211,7 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 			URL:         webURL,
 			LastCrawled: time.Now(),
 		}
-		lastInsertID, err := s.service.CreateProduct(product)
+		lastInsertID, err := s.repos.products.Create(product)
 		if err != nil {
 			return err
 		}
@@ -236,7 +246,7 @@ func (s *Scraper) UpdateDB(websiteID int, webURL string, name string, brand stri
 	/*
 		Save price data
 	*/
-	err = s.service.CreatePriceData(priceData)
+	err = s.repos.prices.CreatePriceData(priceData)
 	if err != nil {
 		return err
 	}

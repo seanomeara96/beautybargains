@@ -3,22 +3,14 @@ package hashtagrepo
 import (
 	"beautybargains/internal/models"
 	"database/sql"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 type Repository struct {
 	db *sql.DB
 }
 
-func DefaultHashtagRepoConnection() (*Repository, *sql.DB, error) {
-	db, err := sql.Open("sqlite3", "data/hashtags.db")
-	if err != nil {
-		return nil, nil, err
-	}
-	repo := Repository{db}
-
-	return &repo, db, nil
+func New(db *sql.DB) *Repository {
+	return &Repository{db}
 }
 
 func (r *Repository) Insert(h *models.Hashtag) (*models.Hashtag, error) {
@@ -49,6 +41,14 @@ func (r *Repository) GetIDByPhrase(phrase string) (int, error) {
 	err := r.db.QueryRow(q, phrase).Scan(&h)
 	if err != nil {
 		return 0, err
+	}
+	return h, nil
+}
+func (r *Repository) Get(id int) (models.Hashtag, error) {
+	q := `SELECT id, phrase from hashtags WHERE id = ?`
+	var h models.Hashtag
+	if err := r.db.QueryRow(q, id).Scan(&h.ID, &h.Phrase); err != nil {
+		return h, err
 	}
 	return h, nil
 }

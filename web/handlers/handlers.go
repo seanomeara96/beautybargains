@@ -2,14 +2,15 @@ package handlers
 
 import (
 	"beautybargains/internal/models"
-	"beautybargains/internal/repositories/bannerpromotionrepo"
-	"beautybargains/internal/services/bannerpromotionsvc"
 	"beautybargains/internal/services/brandsvc"
+	"beautybargains/internal/services/hashtagsvc"
 	"beautybargains/internal/services/mailingsvc"
 	"beautybargains/internal/services/personasvc"
+	"beautybargains/internal/services/postsvc"
 	"beautybargains/internal/services/pricedatasvc"
 	"beautybargains/internal/services/productsvc"
 	"beautybargains/internal/services/websitesvc"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -26,13 +27,14 @@ import (
 )
 
 type services struct {
-	personas         *personasvc.Service
-	websites         *websitesvc.Service
-	products         *productsvc.Service
-	brands           *brandsvc.Service
-	mailing          *mailingsvc.Service
-	prices           *pricedatasvc.Service
-	bannerpromotions *bannerpromotionsvc.Service
+	personas *personasvc.Service
+	websites *websitesvc.Service
+	products *productsvc.Service
+	brands   *brandsvc.Service
+	mailing  *mailingsvc.Service
+	prices   *pricedatasvc.Service
+	posts    *postsvc.Service
+	hashtags *hashtagsvc.Service
 }
 
 type Handler struct {
@@ -48,7 +50,8 @@ func NewHandler(
 	brands *brandsvc.Service,
 	mailing *mailingsvc.Service,
 	prices *pricedatasvc.Service,
-	bannerpromotions *bannerpromotionsvc.Service,
+	posts *postsvc.Service,
+	hashtags *hashtagsvc.Service,
 ) *Handler {
 	h := Handler{}
 	h.tmpl = tmpl
@@ -58,7 +61,8 @@ func NewHandler(
 	h.services.brands = brands
 	h.services.mailing = mailing
 	h.services.prices = prices
-	h.services.bannerpromotions = bannerpromotions
+	h.services.posts = posts
+	h.services.hashtags = hashtags
 	return &h
 }
 
@@ -707,7 +711,7 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 
 	hashtagQuery := r.URL.Query().Get("hashtag")
 
-	params := bannerpromotionrepo.GetBannerPromotionsParams{
+	params := postsvc.GetPostParams{
 		SortByTimestampDesc: true,
 	}
 
@@ -715,6 +719,8 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 		website, err := h.services.websites.GetByName(websiteName)
 		if err == nil {
 			params.WebsiteID = website.WebsiteID
+		} else {
+			log.Printf("Warning: User tried to get posts for %s. %v", websiteName, err)
 		}
 	}
 
@@ -729,7 +735,7 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	promos, err := h.services.bannerpromotions.GetAll(params)
+	promos, err := h.services.posts.GetAll(params)
 	if err != nil {
 		log.Printf("Could not get banner promotions for feed page.  %v", err)
 		h.InternalError(w, r)
@@ -762,13 +768,21 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 			unit = "Days"
 			magnitude = days
 		} else {
-			unit = "Hours"
+			if hours == 1 {
+				unit = "Hour"
+			} else {
+				unit = "Hours"
+			}
 			magnitude = hours
 		}
 
 		// Step 3: Format String
 		e.Content.TimeElapsed = fmt.Sprintf("%d %s ago", magnitude, unit)
-		e.Meta.Src = &promos[i].BannerURL
+		e.Meta.Src = &promos[i].SrcURL
+
+		if promos[i].Link != "" {
+			e.Meta.CTALink = &promos[i].Link
+		}
 
 		pattern := regexp.MustCompile(`#(\w+)`)
 
@@ -808,20 +822,30 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 		Trending []models.Trending
 	}
 
-	b := newBasePageData(r)
-
-	err = h.tmpl.ExecuteTemplate(w, "feedpage", FeedPageData{b, events, websites, models.DummyTrending})
+	trendingHashtags, err := h.services.hashtags.GetTrending(5)
 	if err != nil {
-		log.Printf("Error: %v", err)
+		log.Printf("Error trying to get trending hashtags in feed handler. %v", err)
+		w.WriteHeader(500)
+		return
 	}
 
+	b := newBasePageData(r)
+
+	var buf bytes.Buffer
+	if err := h.tmpl.ExecuteTemplate(&buf, "feedpage", FeedPageData{b, events, websites, trendingHashtags}); err != nil {
+		log.Printf("Error: %v", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.Write(buf.Bytes())
 }
 
 func (h *Handler) Promotions(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	websiteName := vars["websiteName"]
 
-	params := bannerpromotionrepo.GetBannerPromotionsParams{
+	params := postsvc.GetPostParams{
 		SortByTimestampDesc: true,
 	}
 
@@ -832,7 +856,7 @@ func (h *Handler) Promotions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	promos, err := h.services.bannerpromotions.GetAll(params)
+	promos, err := h.services.posts.GetAll(params)
 	if err != nil {
 		log.Printf("Error: %v", err)
 		h.InternalError(w, r)
@@ -841,7 +865,7 @@ func (h *Handler) Promotions(w http.ResponseWriter, r *http.Request) {
 
 	type PromoPageData struct {
 		BasePageData
-		Promotions []models.BannerPromotion
+		Promotions []models.Post
 	}
 
 	b := newBasePageData(r)

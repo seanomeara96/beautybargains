@@ -36,13 +36,14 @@ var DummyContent = Content{
 }
 
 type EventMeta struct {
-	Src   *string
-	Likes int
+	CTALink *string
+	Src     *string
+	Likes   int
 }
 
 var DummyEventMetaSrc = "/"
 
-var DummyEventMeta = EventMeta{&DummyEventMetaSrc, 0}
+var DummyEventMeta = EventMeta{&DummyEventMetaSrc, &DummyEventMetaSrc, 0}
 
 type Event struct {
 	Profile Profile

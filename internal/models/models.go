@@ -84,11 +84,11 @@ type Brand struct {
 	Path string
 }
 
-type BannerPromotion struct {
+type Post struct {
 	WebsiteID   int
 	ID          int
 	Description string
-	BannerURL   string
+	SrcURL      string
 	Link        string
 	Timestamp   time.Time
 	AuthorID    int // supposed to correspond with a persona id
@@ -112,9 +112,9 @@ type Trending struct {
 }
 
 var DummyTrending = []Trending{
-	Trending{"Brand", "#this", 2},
-	Trending{"Brand", "#that", 2},
-	Trending{"Brand", "#the", 2},
-	Trending{"Brand", "#other", 2},
-	Trending{"Brand", "#thing", 2},
+	Trending{"Topic", "#this", 2},
+	Trending{"Topic", "#that", 2},
+	Trending{"Topic", "#the", 2},
+	Trending{"Topic", "#other", 2},
+	Trending{"Topic", "#thing", 2},
 }

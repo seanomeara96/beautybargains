@@ -2,17 +2,20 @@ package main
 
 import (
 	"beautybargains/internal/models"
-	"beautybargains/internal/repositories/bannerpromotionrepo"
 	"beautybargains/internal/repositories/brandrepo"
+	"beautybargains/internal/repositories/hashtagrepo"
 	"beautybargains/internal/repositories/personarepo"
+	"beautybargains/internal/repositories/posthashtagrepo"
+	"beautybargains/internal/repositories/postrepo"
 	"beautybargains/internal/repositories/pricedatarepo"
 	"beautybargains/internal/repositories/productrepo"
 	"beautybargains/internal/repositories/subscriberrepo"
 	"beautybargains/internal/repositories/websiterepo"
-	"beautybargains/internal/services/bannerpromotionsvc"
 	"beautybargains/internal/services/brandsvc"
+	"beautybargains/internal/services/hashtagsvc"
 	"beautybargains/internal/services/mailingsvc"
 	"beautybargains/internal/services/personasvc"
+	"beautybargains/internal/services/postsvc"
 	"beautybargains/internal/services/pricedatasvc"
 	"beautybargains/internal/services/productsvc"
 	"beautybargains/internal/services/websitesvc"
@@ -83,10 +86,17 @@ func main() {
 	mailingService := mailingsvc.New(subscriberRepo)
 	defer subscriberDB.Close()
 
-	bannerpromotionDB := dbConnect("data/bannerpromotions.db")
-	bannerpromotionRepo := bannerpromotionrepo.New(bannerpromotionDB)
-	bannerpromotionService := bannerpromotionsvc.New(bannerpromotionRepo)
-	defer bannerpromotionDB.Close()
+	hashtagDB := dbConnect("data/hashtags.db")
+	postHashtagDB := dbConnect("data/posthashtags.db")
+	postDB := dbConnect("data/posts.db")
+	postRepo := postrepo.New(postDB)
+	hashtagRepo := hashtagrepo.New(hashtagDB)
+	postHashtagRepo := posthashtagrepo.New(postHashtagDB)
+	hashtagService := hashtagsvc.New(hashtagRepo, postHashtagRepo)
+	postService := postsvc.New(postRepo, hashtagRepo, postHashtagRepo)
+	defer postDB.Close()
+	defer hashtagDB.Close()
+	defer postHashtagDB.Close()
 
 	handler := handlers.NewHandler(
 		tmpl,
@@ -96,7 +106,8 @@ func main() {
 		brandService,
 		mailingService,
 		pricedataService,
-		bannerpromotionService,
+		postService,
+		hashtagService,
 	)
 	router := routers.NewRouter(mode, handler)
 
