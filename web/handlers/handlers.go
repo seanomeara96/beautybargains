@@ -422,6 +422,9 @@ func (h *Handler) GetAddWebsiteForm(w http.ResponseWriter, r *http.Request) {
 	h.tmpl.ExecuteTemplate(w, "addwebsite", nil)
 }
 func (h *Handler) ProcessAddWebsiteFormSubmission(w http.ResponseWriter, r *http.Request) {
+
+	log.Println("Porcessing add website form")
+
 	err := r.ParseForm()
 	if err != nil {
 		log.Printf("Error: %v", err)
@@ -435,9 +438,12 @@ func (h *Handler) ProcessAddWebsiteFormSubmission(w http.ResponseWriter, r *http
 
 	err = h.services.websites.Create(name, url, country)
 	if err != nil {
+		log.Printf("Error: %v", err)
 		h.InternalError(w, r)
 		return
 	}
+
+	log.Println(name, url, "added successfully")
 
 	h.GetWebsites(w, r)
 }

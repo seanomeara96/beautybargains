@@ -5,6 +5,7 @@ import (
 	"beautybargains/internal/repositories/personarepo"
 	"beautybargains/internal/repositories/postrepo"
 	"beautybargains/internal/repositories/websiterepo"
+	"beautybargains/internal/scripts"
 	"beautybargains/internal/services/chatsvc"
 	"database/sql"
 	"encoding/json"
@@ -122,6 +123,10 @@ func main() {
 		}
 
 	}
+
+	if err := scripts.ProcessHashtags(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 /*
@@ -146,9 +151,9 @@ func ExtractBannerURLs(website models.Website) ([]string, error) {
 	switch website.WebsiteID {
 	case 1:
 		// beautyfeatures
-		doc.Find("picture source").Each(func(i int, s *goquery.Selection) {
+		doc.Find("picture img").Each(func(i int, s *goquery.Selection) {
 			// For each item found, get the title
-			value, found := s.Attr("srcset")
+			value, found := s.Attr("src")
 			if found {
 				bannerURLs = append(bannerURLs, value)
 			}

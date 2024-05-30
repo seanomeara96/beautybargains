@@ -47,7 +47,7 @@ func NewRouter(mode models.Mode, handler *handlers.Handler) *mux.Router {
 		r.HandleFunc("/products/errors/", handler.ListProductErrors).Methods(http.MethodGet)
 		r.HandleFunc("/products/{product_id}/", handler.GetProductWithPrices).Methods(http.MethodGet)
 		r.HandleFunc("/products/{product_id}/prices/{price_id}/", handler.GetPriceData).Methods(http.MethodGet)
-		r.HandleFunc("/add-website/", handler.GetAddWebsiteForm).Methods(http.MethodGet)
+		r.HandleFunc("/websites/add/", handler.GetAddWebsiteForm).Methods(http.MethodGet)
 		r.HandleFunc("/add-website/", handler.ProcessAddWebsiteFormSubmission).Methods(http.MethodPost)
 		r.HandleFunc("/websites/", handler.GetWebsites).Methods(http.MethodGet)
 		r.HandleFunc("/websites/{website_id}/", handler.GetWebsite).Methods(http.MethodGet)
