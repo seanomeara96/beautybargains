@@ -1,13 +1,13 @@
 package hashtagservice
 
 import (
-	"beautybargains/internal/repositories/hashtags"
-	"beautybargains/internal/repositories/posthashtags"
+	"beautybargains/internal/repositories/hashtagrepo"
+	"beautybargains/internal/repositories/posthashtagrepo"
 )
 
 type repos struct {
-	hashtags     *hashtags.Repository
-	posthashtags *posthashtags.Repository
+	hashtags     *hashtagrepo.Repository
+	posthashtags *posthashtagrepo.Repository
 }
 
 type Service struct {

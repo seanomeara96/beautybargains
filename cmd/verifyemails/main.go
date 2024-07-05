@@ -1,7 +1,7 @@
 package main
 
 import (
-	"beautybargains/services"
+	"beautybargains/internal/services/mailingsvc"
 	"database/sql"
 	"log"
 )
@@ -15,7 +15,7 @@ func main() {
 	}
 	defer db.Close()
 
-	service := services.NewService(db)
+	service := mailingsvc.New(db)
 
 	emails, err := service.GetUnverifiedEmails()
 	if err != nil {
