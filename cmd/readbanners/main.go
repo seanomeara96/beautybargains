@@ -1,12 +1,6 @@
 package main
 
 import (
-	"beautybargains/internal/models"
-	"beautybargains/internal/repositories/personarepo"
-	"beautybargains/internal/repositories/postrepo"
-	"beautybargains/internal/repositories/websiterepo"
-	"beautybargains/internal/scripts"
-	"beautybargains/internal/services/chatsvc"
 	"database/sql"
 	"encoding/json"
 	"fmt"
