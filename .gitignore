@@ -5,3 +5,4 @@ data-journal
 *.log
 images/
 *.db
+bin/

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,7 +19,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sashabaranov/go-openai"
 )
@@ -235,15 +238,24 @@ var menuItems = []MenuItem{
 
 func main() {
 
+	if err := godotenv.Load(); err != nil {
+		log.Fatal(err)
+	}
+
 	db, err := sql.Open("sqlite3", "main.db")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
+	if err := extractOffersFromBanners(db); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := processHashtags(db); err != nil {
 		log.Fatal(err)
 	}
+
 	if err := server(db); err != nil {
 		log.Fatal(err)
 	}
@@ -267,7 +279,24 @@ func server(db *sql.DB) error {
 		mode = Dev
 	}
 
-	tmpl, err := template.New("web").Funcs(getFuncMap()).ParseGlob("web/templates/**/*.tmpl")
+	productionDomain := os.Getenv("PROD_DOMAIN")
+	if mode == Prod && productionDomain == "" {
+		return errors.New("must supply production domain to run server in prod")
+	}
+
+	funcMap := template.FuncMap{
+		"longDate":            formatLongDate,
+		"placeholderImage":    placeholderImage,
+		"truncateDescription": truncateDescription,
+		"proper":              proper,
+		"unescape":            unescape,
+		"isCurrentPage":       isCurrentPage,
+		"add":                 add,
+		"subtract":            subtract,
+		"lower":               lower,
+	}
+
+	tmpl, err := template.New("web").Funcs(funcMap).ParseGlob("web/templates/**/*.tmpl")
 	if err != nil {
 		return fmt.Errorf("Error parsing templates. %v", err)
 	}
@@ -316,17 +345,13 @@ func server(db *sql.DB) error {
 	handle("/feed/", handleGetFeed(db, tmpl)).Methods(http.MethodGet)
 	handle("/feed/{websiteName}/", handleGetFeed(db, tmpl)).Methods(http.MethodGet)
 
-	if mode == Dev {
-		handle("/websites/add/", handleGetAddWebsitePage(db, tmpl)).Methods(http.MethodGet)
-		handle("/add-website/", handlePostAddWebsiteFormSubmission(db, tmpl)).Methods(http.MethodPost)
-		handle("/websites/", handleGetWebsites(db, tmpl)).Methods(http.MethodGet)
-		handle("/websites/{website_id}/", handleGetWebsiteByID(db, tmpl)).Methods(http.MethodGet)
-		handle("/brands/", handleGetBrands(db, tmpl)).Methods(http.MethodGet)
-		// handle("/brands/{brand_path}/", handleGetBrandByPath(db, tmpl)).Methods(http.MethodGet)
-		handle("/subscribe/", handlePostSubscribe(db, tmpl)).Methods(http.MethodPost)
-		// handle("/subscribe/", handleGetSubscribePage(db, tmpl)).Methods(http.MethodGet)
-		handle("/subscribe/verify", handleGetVerifySubscription(db, tmpl)).Methods(http.MethodGet)
-	}
+	handle("/websites/", handleGetWebsites(db, tmpl)).Methods(http.MethodGet)
+	handle("/websites/{website_id}/", handleGetWebsiteByID(db, tmpl)).Methods(http.MethodGet)
+	handle("/brands/", handleGetBrands(db, tmpl)).Methods(http.MethodGet)
+	// handle("/brands/{brand_path}/", handleGetBrandByPath(db, tmpl)).Methods(http.MethodGet)
+	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, tmpl)).Methods(http.MethodPost)
+	// handle("/subscribe/", handleGetSubscribePage(db, tmpl)).Methods(http.MethodGet)
+	handle("/subscribe/verify", handleGetVerifySubscription(db, tmpl)).Methods(http.MethodGet)
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err = http.ListenAndServe(":"+port, r); err != nil {
@@ -341,7 +366,7 @@ func processHashtags(db *sql.DB) error {
 		Get all posts. At some point I will have to implement a way to filter for posts
 		that have not already been processed
 	*/
-	posts, err := getAllPosts(db, getAllPostParams{})
+	posts, err := getPosts(db, getPostParams{})
 	if err != nil {
 		return err
 	}
@@ -376,7 +401,12 @@ func processHashtags(db *sql.DB) error {
 					return err
 				}
 
-				count, err := countPostHashtagRelationships(db, p.ID, hashtagID)
+				q := `SELECT count(*) FROM 	post_hashtags WHERE post_id = ? AND hashtag_id = ?`
+
+				var count int
+				if err := db.QueryRow(q, p.ID, hashtagID).Scan(&count); err != nil {
+					return fmt.Errorf("Could not count relationships between %d & %d. %v", p.ID, hashtagID, err)
+				}
 				if err != nil {
 					return err
 				}
@@ -404,6 +434,81 @@ func processHashtags(db *sql.DB) error {
 	return nil
 }
 
+func extractOffersFromBanners(db *sql.DB) error {
+
+	websites := getWebsites(0, 0)
+
+	for _, website := range websites {
+		bannerURLs, err := extractWebsiteBannerURLs(website)
+		if err != nil {
+			continue
+		}
+
+		uniqueBanners := []string{}
+		for _, u := range bannerURLs {
+
+			var bannerCount int
+			err := db.QueryRow(`SELECT count(id) FROM posts WHERE srcURL = ?`, u).Scan(&bannerCount)
+			if err != nil {
+				return fmt.Errorf("Error checking existance of banner %v", err)
+			}
+
+			bannerExists := bannerCount > 0
+
+			if bannerExists {
+				continue
+			}
+
+			uniqueBanners = append(uniqueBanners, u)
+
+		}
+
+		for _, url := range uniqueBanners {
+
+			if url == "" {
+				continue
+			}
+
+			description, err := generateOfferDescription(website.WebsiteName, url)
+			if err != nil {
+				return fmt.Errorf(`Error getting offer description from chatgpt. 
+				WebsiteName: %s,
+				URL: %s,
+				%v`, website.WebsiteName, url, err)
+			}
+
+			author, err := getRandomPersona(db)
+			if err != nil {
+				return fmt.Errorf("Warning: could not get author from repo. %v", err)
+			}
+
+			// I picked 8 randomly for author id
+			authorID := 8
+			if author != nil {
+				authorID = author.ID
+			}
+
+			_, err = db.Exec(
+				"INSERT INTO posts(websiteID, srcURL, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
+				website.WebsiteID, url, authorID, description, time.Now())
+			if err != nil {
+				return fmt.Errorf(`Error saving banner promotion. 
+				Website id: %d,
+				URL: %s,
+				AuthorID: %d,
+				Description: %s,
+				%v`, website.WebsiteID, url, authorID, description, err)
+			}
+		}
+
+	}
+
+	if err := processHashtags(db); err != nil {
+		return err
+	}
+	return nil
+}
+
 /* Handlers */
 func handleGetHomePage(db *sql.DB, tmpl *template.Template) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
@@ -420,18 +525,18 @@ func handleGetPromotionsPage(db *sql.DB, tmpl *template.Template) handleFunc {
 		vars := mux.Vars(r)
 		websiteName := vars["websiteName"]
 
-		params := getAllPostParams{
+		params := getPostParams{
 			SortByTimestampDesc: true,
 		}
 
 		if websiteName != "" {
-			website, err := getWebsiteByName(db, websiteName)
+			website, err := getWebsiteByName(websiteName)
 			if err == nil {
 				params.WebsiteID = website.WebsiteID
 			}
 		}
 
-		promos, err := getAllPosts(db, params)
+		promos, err := getPosts(db, params)
 		if err != nil {
 			return fmt.Errorf("Error: %w", err)
 		}
@@ -453,18 +558,18 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		hashtagQuery := r.URL.Query().Get("hashtag")
 
-		type GetPostParams struct {
+		type FeedParams struct {
 			WebsiteID           int
 			SortByTimestampDesc bool
 			Hashtag             string
 		}
 
-		params := GetPostParams{
+		params := FeedParams{
 			SortByTimestampDesc: true,
 		}
 
 		if websiteName != "" {
-			website, err := getWebsiteByName(db, websiteName)
+			website, err := getWebsiteByName(websiteName)
 			if err == nil {
 				params.WebsiteID = website.WebsiteID
 			} else {
@@ -476,31 +581,40 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 			params.Hashtag = hashtagQuery
 		}
 
-		promos, err := func(params GetPostParams) ([]*Post, error) {
-
-			var postIDs []int
-			if params.Hashtag != "" {
-				hashtagID, err := getHashtagIDByPhrase(db, params.Hashtag)
-				if err != nil {
-					return nil, fmt.Errorf("Could not get hashtag id in get by phrase. %w", err)
-				}
-				ids, err := getPostIDsByHashtagID(db, hashtagID)
-				if err != nil {
-					return nil, fmt.Errorf("Could not get post ids for hashtag id, %d phrase: %s. %w", hashtagID, params.Hashtag, err)
-				}
-				postIDs = ids
-			}
-
-			repoParams := getAllPostParams{}
-			repoParams.IDs = postIDs
-			repoParams.SortByTimestampDesc = params.SortByTimestampDesc
-			repoParams.WebsiteID = params.WebsiteID
-			p, err := getAllPosts(db, repoParams)
+		var postIDs []int
+		if params.Hashtag != "" {
+			hashtagID, err := getHashtagIDByPhrase(db, params.Hashtag)
 			if err != nil {
-				return nil, fmt.Errorf("Error with postrepo GetAll func at postsvc.GetAll. %w", err)
+				return fmt.Errorf("Could not get hashtag id in get by phrase. %w", err)
 			}
-			return p, nil
-		}(params)
+
+			postIdRows, err := db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
+			if err != nil {
+				return fmt.Errorf("Error getting post_ids from post_hashtags db. %w", err)
+			}
+			defer postIdRows.Close()
+
+			ids := []int{}
+			for postIdRows.Next() {
+				var id int
+				err := postIdRows.Scan(&id)
+				if err != nil {
+					return fmt.Errorf("Error scanning post_id in getposts. %w", err)
+				}
+				ids = append(ids, id)
+			}
+			postIDs = ids
+		}
+
+		getPostParams := getPostParams{}
+		getPostParams.IDs = postIDs
+		getPostParams.SortByTimestampDesc = params.SortByTimestampDesc
+		getPostParams.WebsiteID = params.WebsiteID
+		promos, err := getPosts(db, getPostParams)
+		if err != nil {
+			return fmt.Errorf("Error with postrepo GetAll func at postsvc.GetAll. %w", err)
+		}
+
 		if err != nil {
 			return fmt.Errorf("Could not get banner promotions for feed page.  %v", err)
 		}
@@ -566,7 +680,7 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 			extraTextHTML := template.HTML(extraText)
 
 			e.Content.ExtraText = &extraTextHTML
-			website, err := getWebsiteByID(db, promos[i].WebsiteID)
+			website, err := getWebsiteByID(promos[i].WebsiteID)
 			if err != nil {
 				return fmt.Errorf("Could not get website by id %d. %v", promos[i].WebsiteID, err)
 			}
@@ -575,26 +689,37 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 			events = append(events, e)
 		}
 
-		websites, err := getAllWebsites(db, 10, 0)
+		websites := getWebsites(10, 0)
+
+		limit := 5
+		q := `SELECT  hashtag_id,  count(post_id) FROM post_hashtags GROUP BY hashtag_idORDER BY count(post_id) DESC LIMIT ?`
+
+		rows, err := db.Query(q, limit)
 		if err != nil {
 			return err
 		}
+		defer rows.Close()
 
-		trendingHashtags, err := func(limit int) ([]*Trending, error) {
-			top, err := getTopHashtagByPostCount(db, limit) // should expect an array like {hashtag, postcount}
+		top := []GetTopByPostCountResponse{}
+		for rows.Next() {
+			var row GetTopByPostCountResponse
+			if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
+				return err
+			}
+			top = append(top, row)
+		} // should expect an array like {hashtag, postcount}
+		if err != nil {
+			return fmt.Errorf("Could not get postHashtags at GetTrending. %v", err)
+		}
+
+		var trendingHashtags []*Trending
+		for _, row := range top {
+			hashtag, err := getHashtagByID(db, row.HashtagID)
 			if err != nil {
-				return nil, fmt.Errorf("Could not get postHashtags at GetTrending. %v", err)
+				return fmt.Errorf("Could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
 			}
-			var trending []*Trending
-			for _, row := range top {
-				hashtag, err := getHashtagByID(db, row.HashtagID)
-				if err != nil {
-					return nil, fmt.Errorf("Could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
-				}
-				trending = append(trending, &Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
-			}
-			return trending, nil
-		}(5)
+			trendingHashtags = append(trendingHashtags, &Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
+		}
 
 		if err != nil {
 			return fmt.Errorf("Error trying to get trending hashtags in feed handler. %v", err)
@@ -617,33 +742,18 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 
 }
 
-func handleGetAddWebsitePage(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
-		if err := tmpl.ExecuteTemplate(w, "addwebsite", map[string]any{"MenuItems": menuItems, "Request": r}); err != nil {
-			return err
-		}
-		return nil
-	}
-}
-
 func handleGetWebsites(db *sql.DB, tmpl *template.Template) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		limit, offset, page := paginator(r)
-		websites, err := getAllWebsites(db, limit, offset)
-		if err != nil {
-			return err
-		}
+		websites := getWebsites(limit, offset)
 
-		count, err := countWebsites(db)
-		if err != nil {
-			return err
-		}
+		count := len(getWebsites(0, 0))
 
 		maxPages := int(math.Ceil(float64(count) / float64(limit)))
 
 		pagination := Pagination{page, maxPages}
 
-		err = tmpl.ExecuteTemplate(w, "websites", map[string]any{"MenuItems": menuItems, "Request": r, "Websites": websites, "Pagination": pagination})
+		err := tmpl.ExecuteTemplate(w, "websites", map[string]any{"MenuItems": menuItems, "Request": r, "Websites": websites, "Pagination": pagination})
 		if err != nil {
 			return fmt.Errorf("Error: %v", err)
 		}
@@ -657,41 +767,25 @@ func handleGetWebsiteByID(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		websiteID, err := strconv.Atoi(vars["website_id"])
 		if err != nil {
-			return fmt.Errorf("Error %v", err)
+			websiteID = 1
 		}
 
-		website, err := getWebsiteByID(db, websiteID)
+		website, err := getWebsiteByID(websiteID)
 		if err != nil {
 			return fmt.Errorf("Error %v", err)
 		}
 
-		err = tmpl.ExecuteTemplate(w, "website", map[string]any{"MenuItems": menuItems, "Request": r, "Website": website})
+		var buf bytes.Buffer
+		err = tmpl.ExecuteTemplate(&buf, "website", map[string]any{"MenuItems": menuItems, "Request": r, "Website": website})
 		if err != nil {
 			return fmt.Errorf("Error %v", err)
 		}
+
+		if _, err := w.Write(buf.Bytes()); err != nil {
+			return err
+		}
+
 		return nil
-	}
-}
-
-func handlePostAddWebsiteFormSubmission(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
-		err := r.ParseForm()
-		if err != nil {
-			return err
-		}
-
-		name := r.Form.Get("name")
-		url := r.Form.Get("url")
-		country := r.Form.Get("country")
-
-		website := Website{WebsiteName: name, URL: url, Country: country}
-
-		err = createWebsite(db, &website)
-		if err != nil {
-			return err
-		}
-
-		return handleGetWebsites(db, tmpl)(w, r)
 	}
 }
 
@@ -713,15 +807,21 @@ func handleGetBrands(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		pagination := Pagination{page, maxPages}
 
-		err = tmpl.ExecuteTemplate(w, "brands", map[string]any{"MenuItems": menuItems, "Request": r, "Brands": brands, "Pagination": pagination})
+		var buf bytes.Buffer
+		err = tmpl.ExecuteTemplate(&buf, "brands", map[string]any{"MenuItems": menuItems, "Request": r, "Brands": brands, "Pagination": pagination})
 		if err != nil {
 			return err
 		}
+
+		if _, err := w.Write(buf.Bytes()); err != nil {
+			return err
+		}
+
 		return nil
 	}
 }
 
-func handlePostSubscribe(db *sql.DB, tmpl *template.Template) handleFunc {
+func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, tmpl *template.Template) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		err := r.ParseForm()
 
@@ -729,10 +829,48 @@ func handlePostSubscribe(db *sql.DB, tmpl *template.Template) handleFunc {
 		consent := r.FormValue("consent")
 
 		if consent == "on" {
-			err = subscribe(db, email)
+
+			q := `INSERT INTO subscribers(email, consent) VALUES (?, ?)`
+			_, err := db.Exec(q, email, 1)
 			if err != nil {
-				return fmt.Errorf("Error subscribing user: %v", err)
+				return fmt.Errorf("could not insert email into subscibers table => %w", err)
 			}
+
+			// Calculate the required byte size based on the length of the token
+			byteSize := 20 / 2 // Each byte is represented by 2 characters in hexadecimal encoding
+
+			// Create a byte slice to store the random bytes
+			randomBytes := make([]byte, byteSize)
+
+			// Read random bytes from the crypto/rand package
+			_, err = rand.Read(randomBytes)
+			if err != nil {
+				return err
+			}
+
+			// Encode the random bytes into a hexadecimal string
+			token := fmt.Sprintf("%x", randomBytes)
+
+			// TODO move gernate token to service level
+			// TODO do one insert with both email and verification token
+
+			setVerificationTokenQuery := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
+			_, err = db.Exec(setVerificationTokenQuery, token, email)
+			if err != nil {
+				return fmt.Errorf("could not add verification token to user by email => %w", err)
+			}
+
+			domain := "http://localhost:" + port
+			if mode == Prod {
+				domain = productionDomain
+			}
+
+			log.Printf("Verify subscription at %s/subscribe/verify?token=%s", domain, token)
+			/* TODO implement this in production. For now log to console
+			err = s.SendVerificationToken(email, token)
+				if err != nil {
+					return fmt.Errorf("failed to send verification token => %w", err)
+				}*/
 
 			err = tmpl.ExecuteTemplate(w, "subscriptionsuccess", nil)
 			if err != nil {
@@ -761,9 +899,10 @@ func handleGetVerifySubscription(db *sql.DB, tmpl *template.Template) handleFunc
 			}
 		}
 
-		err := verifySubscription(db, token)
+		q := `UPDATE subscribers SET is_verified = 1 WHERE verification_token = ?`
+		_, err := db.Exec(q, token)
 		if err != nil {
-			return fmt.Errorf("Error: could not verify subscription => %v", err)
+			return fmt.Errorf("could not verify subscription via verification token => %w", err)
 		}
 
 		// subscription confirmed
@@ -778,72 +917,74 @@ func handleGetVerifySubscription(db *sql.DB, tmpl *template.Template) handleFunc
 
 /* handlers end */
 
-/*
-utility functions
-*/
-func getFuncMap() template.FuncMap {
-	add := func(a, b int) int {
-		return a + b
-	}
-	subtract := func(a, b int) int {
-		return a - b
-	}
-	formatLongDate := func(t time.Time) string {
-		return t.Format("January 2, 2006")
-	}
-	placeholderImage := func(url string) string {
-		if url == "" {
-			return "https://semantic-ui.com/images/avatar/small/jenny.jpg"
-		}
-		return url
-	}
-	truncateDescription := func(description string) string {
-		if len(description) < 100 {
-			return description
-		}
-		return string(description[0:100] + "...")
-	}
-	unescape := func(s string) template.HTML {
-		return template.HTML(s)
-	}
-	proper := func(str string) string {
-		words := strings.Fields(str)
-		for i, word := range words {
-			words[i] = strings.ToUpper(string(word[0])) + word[1:]
-		}
-		return strings.Join(words, " ")
-	}
-	isCurrentPage := func(r *http.Request, path string) bool {
-		return r.URL.Path == path
-	}
-	lower := func(s string) string {
-		return strings.ToLower(s)
-	}
-	return template.FuncMap{
-		"longDate":            formatLongDate,
-		"placeholderImage":    placeholderImage,
-		"truncateDescription": truncateDescription,
-		"proper":              proper,
-		"unescape":            unescape,
-		"isCurrentPage":       isCurrentPage,
-		"add":                 add,
-		"subtract":            subtract,
-		"lower":               lower,
-	}
+/* tempalte functions start*/
 
+func add(a, b int) int {
+	return a + b
 }
 
-func VerifyUnverifiedEmails(
-	getUnverifiedEmails func() ([]string, error),
-	generateEmailVerificationToken func(int) (string, error),
-	addVerficationTokenToEmailRecord func(email, token string) error,
-	sendVerificationEmail func(email, token string) error,
-) error {
+func subtract(a, b int) int {
+	return a - b
+}
 
-	emails, err := getUnverifiedEmails()
+func formatLongDate(t time.Time) string {
+	return t.Format("January 2, 2006")
+}
 
+func placeholderImage(url string) string {
+	if url == "" {
+		return "https://semantic-ui.com/images/avatar/small/jenny.jpg"
+	}
+	return url
+}
+
+func truncateDescription(description string) string {
+	if len(description) < 100 {
+		return description
+	}
+	return string(description[0:100] + "...")
+}
+
+func unescape(s string) template.HTML {
+	return template.HTML(s)
+}
+
+func proper(str string) string {
+	words := strings.Fields(str)
+	for i, word := range words {
+		words[i] = strings.ToUpper(string(word[0])) + word[1:]
+	}
+	return strings.Join(words, " ")
+}
+
+func isCurrentPage(r *http.Request, path string) bool {
+	return r.URL.Path == path
+}
+
+func lower(s string) string {
+	return strings.ToLower(s)
+}
+
+/* template functions end */
+
+func VerifyUnverifiedEmails(db *sql.DB) error {
+
+	q := `SELECT email FROM subscribers WHERE is_verified = 0`
+	rows, err := db.Query(q)
 	if err != nil {
-		return fmt.Errorf("Error: %w", err)
+		return err
+	}
+	defer rows.Close()
+
+	emails := []string{}
+
+	for rows.Next() {
+		var email string
+		err = rows.Scan(&email)
+		if err != nil {
+			return err
+		}
+		emails = append(emails, email)
 	}
 
 	for _, email := range emails {
@@ -1159,6 +1300,11 @@ func getPersonaByID(db *sql.DB, id int) (*Persona, error) {
 	if db == nil {
 		return nil, dbNil
 	}
+
+	if id < 1 {
+		return nil, fmt.Errorf("please supply a valid id")
+	}
+
 	return nil, fmt.Errorf("Not yet implmented")
 }
 
@@ -1253,80 +1399,7 @@ func getTopHashtagByPostCount(db *sql.DB, limit int) ([]GetTopByPostCountRespons
 		return nil, dbNil
 	}
 
-	q := `SELECT 
-		hashtag_id, 
-		count(post_id) 
-	FROM 
-		post_hashtags 
-	GROUP BY
-		hashtag_id
-	ORDER BY 
-		count(post_id) 
-	DESC 
-	LIMIT ?`
-
-	rows, err := db.Query(q, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	res := []GetTopByPostCountResponse{}
-	for rows.Next() {
-		var row GetTopByPostCountResponse
-		if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
-			return nil, err
-		}
-		res = append(res, row)
-	}
-	return res, nil
-}
-
-func countPostHashtagRelationships(db *sql.DB, postID, hashtagID int) (int, error) {
-
-	if db == nil {
-		return -1, dbNil
-	}
-
-	q := `SELECT 
-		count(*) 
-	FROM 
-		post_hashtags 
-	WHERE 
-		post_id = ? 
-	AND 
-		hashtag_id = ?`
-
-	var count int
-	if err := db.QueryRow(q, postID, hashtagID).Scan(&count); err != nil {
-		return 0, fmt.Errorf("Could not count relationships between %d & %d. %v", postID, hashtagID, err)
-	}
-	return count, nil
-}
-
-func getPostIDsByHashtagID(db *sql.DB, hashtagID int) ([]int, error) {
-
-	if db == nil {
-		return nil, dbNil
-	}
-
-	rows, err := db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
-	if err != nil {
-		return []int{}, fmt.Errorf("Error getting post_ids from post_hashtags db. %w", err)
-	}
-	defer rows.Close()
-
-	res := []int{}
-	for rows.Next() {
-		var i int
-		err := rows.Scan(&i)
-		if err != nil {
-			return []int{}, fmt.Errorf("Error scanning post_id in getposts. %w", err)
-		}
-		res = append(res, i)
-	}
-
-	return res, nil
+	return top, nil
 }
 
 // TODO update these functions to addres websiteID column
@@ -1366,13 +1439,13 @@ func updatePost(db *sql.DB, p *Post) error {
 	return nil
 }
 
-type getAllPostParams struct {
+type getPostParams struct {
 	WebsiteID           int
 	SortByTimestampDesc bool
 	IDs                 []int
 }
 
-func getAllPosts(db *sql.DB, params getAllPostParams) ([]*Post, error) {
+func getPosts(db *sql.DB, params getPostParams) ([]*Post, error) {
 
 	if db == nil {
 		return nil, dbNil
@@ -1425,229 +1498,6 @@ func getAllPosts(db *sql.DB, params getAllPostParams) ([]*Post, error) {
 
 }
 
-func countPostsBySrc(db *sql.DB, imgSrc string) (int, error) {
-
-	if db == nil {
-		return -1, dbNil
-	}
-
-	var count int
-	err := db.QueryRow(`SELECT count(id) FROM posts WHERE srcURL = ?`, imgSrc).Scan(&count)
-	if err != nil {
-		return -1, err
-	}
-	return count, nil
-}
-
-func insertNewPost(db *sql.DB, websiteID int, url string, authorID int, description string, timestamp time.Time) error {
-
-	if db == nil {
-		return dbNil
-	}
-
-	_, err := db.Exec(
-		"INSERT INTO posts(websiteID, srcURL, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
-		websiteID, url, authorID, description, timestamp) // time.Now()
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-/*images models db  funcs*/
-
-func getDistinctNamesFromImages(db *sql.DB, randomOrder bool) ([]string, error) {
-
-	if db == nil {
-		return nil, dbNil
-	}
-
-	names := []string{}
-	q := "SELECT DISTINCT name FROM images"
-	if randomOrder {
-		q += " ORDER BY RANDOM()"
-	}
-
-	rows, err := db.Query(q)
-	if err != nil {
-		return names, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var name string
-		err := rows.Scan(&name)
-		if err != nil {
-			return names, err
-		}
-		names = append(names, name)
-	}
-
-	return names, nil
-}
-
-func getRandomImages(db *sql.DB, limit int) ([]*ProfilePhoto, error) {
-
-	if db == nil {
-		return nil, dbNil
-	}
-
-	images := []*ProfilePhoto{}
-	q := "SELECT id, file_path as url, name FROM images ORDER BY RANDOM() LIMIT ?"
-	rows, err := db.Query(q, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		image := ProfilePhoto{}
-		err = rows.Scan(&image.ID, &image.URL, &image.Name)
-		if err != nil {
-			return nil, err
-		}
-		images = append(images, &image)
-	}
-
-	return images, nil
-}
-
-func getRandomModelImages(db *sql.DB, modelID int, limit int) ([]*ProfilePhoto, error) {
-
-	if db == nil {
-		return nil, dbNil
-	}
-
-	q := `SELECT 
-		id, 
-		file_path as url, 
-		name 
-	FROM 
-		images 
-	WHERE 
-		model_id = ? 
-	ORDER BY RANDOM() 
-	LIMIT ?`
-
-	rows, err := db.Query(q, modelID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	images := []*ProfilePhoto{}
-	for rows.Next() {
-		var image ProfilePhoto
-
-		if err = rows.Scan(
-			&image.ID,
-			&image.URL,
-			&image.Name,
-		); err != nil {
-			return nil, err
-		}
-
-		images = append(images, &image)
-	}
-
-	return images, nil
-}
-
-func deleteImageByID(db *sql.DB, id int) error {
-
-	if db == nil {
-		return dbNil
-	}
-
-	q := "DELETE FROM images WHERE  id = ?"
-	_, err := db.Exec(q, id)
-	if err != nil {
-		return err
-	}
-	return nil
-
-}
-
-func getAllImages(db *sql.DB) ([]*ProfilePhoto, error) {
-
-	if db == nil {
-		return nil, dbNil
-	}
-
-	images := []*ProfilePhoto{}
-	q := "SELECT id, file_path as url, name FROM images"
-	rows, err := db.Query(q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		image := ProfilePhoto{}
-		err := rows.Scan(&image.ID, &image.URL, &image.Name)
-		if err != nil {
-			return nil, err
-		}
-		images = append(images, &image)
-	}
-
-	return images, nil
-}
-
-func getAllModelImages(db *sql.DB, name string) ([]*ProfilePhoto, error) {
-	if db == nil {
-		return nil, dbNil
-	}
-
-	images := []*ProfilePhoto{}
-	q := "SELECT id, file_path as url, name FROM images WHERE name = ?"
-	rows, err := db.Query(q, name)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		image := ProfilePhoto{}
-		err := rows.Scan(&image.ID, &image.URL, &image.Name)
-		if err != nil {
-			return nil, err
-		}
-		images = append(images, &image)
-	}
-
-	return images, nil
-}
-
-func getImageByID(db *sql.DB, id int) (*ProfilePhoto, error) {
-	if db == nil {
-		return nil, dbNil
-	}
-
-	image := ProfilePhoto{}
-	q := "SELECT id, file_path as url, name FROM images WHERE id = ?"
-	err := db.QueryRow(q, id).Scan(&image.ID, &image.URL, &image.Name)
-	if err != nil {
-		return nil, err
-	}
-	return &image, nil
-}
-
-func getImageFilePathByID(db *sql.DB, id int) (string, error) {
-	if db == nil {
-		return "", dbNil
-	}
-	var filepath string
-	q := "SELECT file_path FROM images WHERE id = ?"
-	err := db.QueryRow(q, id).Scan(&filepath)
-	if err != nil {
-		return filepath, err
-	}
-	return filepath, nil
-}
-
 /*
 CREATE TABLE subscribers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1668,218 +1518,131 @@ func subscribe(db *sql.DB, email string) error {
 		return dbNil
 	}
 
-	q := `INSERT INTO subscribers(email, consent) VALUES (?, ?)`
-	_, err := db.Exec(q, email, 1)
-	if err != nil {
-		return fmt.Errorf("could not insert email into subscibers table => %w", err)
-	}
-
-	token, err := generateToken(20)
-	if err != nil {
-		return fmt.Errorf("failed to generate verification token at service.Subscribe => %w", err)
-	}
-
-	// TODO move gernate token to service level
-	// TODO do one insert with both email and verification token
-
-	err = addVerificationToken(db, email, token)
-	if err != nil {
-		return fmt.Errorf("failed to add verification to subscriber record => %w", err)
-	}
-
-	log.Printf("Verify subscription at https://develop.implicitdev.com/subscribe/verify?token=%s", token)
-	/* TODO implement this in production. For now log to console
-	err = s.SendVerificationToken(email, token)
-		if err != nil {
-			return fmt.Errorf("failed to send verification token => %w", err)
-		}*/
-
 	return nil
 }
-func getUnverifiedEmails(db *sql.DB) ([]string, error) {
 
-	if db == nil {
-		return nil, dbNil
-	}
+/* website funcs*/
 
-	q := `SELECT email FROM subscribers WHERE is_verified = 0`
-	rows, err := db.Query(q)
-	if err != nil {
-		return []string{}, err
-	}
-	defer rows.Close()
-
-	emails := []string{}
-
-	for rows.Next() {
-		var email string
-		err = rows.Scan(&email)
-		if err != nil {
-			return []string{}, err
+// Retrieve a website by its ID from the Websites table
+func getWebsiteByID(websiteID int) (Website, error) {
+	for _, website := range getWebsites(0, 0) {
+		if website.WebsiteID == websiteID {
+			return website, nil
 		}
-		emails = append(emails, email)
 	}
-
-	return emails, nil
-
-}
-
-func addVerificationToken(db *sql.DB, email, verificationToken string) error {
-	if db == nil {
-		return dbNil
-	}
-	q := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
-	_, err := db.Exec(q, verificationToken, email)
-	if err != nil {
-		return fmt.Errorf("could not add verification token to user by email => %w", err)
-	}
-	return nil
-}
-
-func generateToken(length int) (string, error) {
-
-	// Calculate the required byte size based on the length of the token
-	byteSize := length / 2 // Each byte is represented by 2 characters in hexadecimal encoding
-
-	// Create a byte slice to store the random bytes
-	randomBytes := make([]byte, byteSize)
-
-	// Read random bytes from the crypto/rand package
-	_, err := rand.Read(randomBytes)
-	if err != nil {
-		return "", err
-	}
-
-	// Encode the random bytes into a hexadecimal string
-	token := fmt.Sprintf("%x", randomBytes)
-
-	return token, nil
-}
-
-func verifySubscription(db *sql.DB, verificationToken string) error {
-	if db == nil {
-		return dbNil
-	}
-	q := `UPDATE subscribers SET is_verified = 1 WHERE verification_token = ?`
-	_, err := db.Exec(q, verificationToken)
-	if err != nil {
-		return fmt.Errorf("could not verify subscription via verification token => %w", err)
-	}
-	return nil
-}
-
-/* website db funcs*/
-
-// Create a new website and insert it into the Websites table
-func createWebsite(db *sql.DB, website *Website) error {
-	if db == nil {
-		return dbNil
-	}
-	if website == nil {
-		return errors.New("website passed to createWebsite is nil")
-	}
-	_, err := db.Exec("INSERT INTO Websites (WebsiteName, URL, Country) VALUES (?, ?, ?)",
-		website.WebsiteName, website.URL, website.Country)
-	if err != nil {
-		return err
-	}
-	return nil
+	return Website{}, fmt.Errorf("no website with id %d", websiteID)
 }
 
 // Retrieve a website by its ID from the Websites table
-func getWebsiteByID(db *sql.DB, websiteID int) (*Website, error) {
-	if db == nil {
-		return nil, dbNil
-	}
-	var website Website
-	err := db.QueryRow("SELECT WebsiteID, WebsiteName, URL, Country FROM Websites WHERE WebsiteID = ?", websiteID).
-		Scan(&website.WebsiteID, &website.WebsiteName, &website.URL, &website.Country)
-	if err != nil {
-		return nil, err
-	}
-	return &website, nil
-}
-
-// Retrieve a website by its ID from the Websites table
-func getWebsiteByName(db *sql.DB, websiteName string) (*Website, error) {
-	if db == nil {
-		return nil, dbNil
-	}
-	var website Website
-	err := db.QueryRow("SELECT WebsiteID, WebsiteName, URL, Country FROM Websites WHERE LOWER(WebsiteName) = ?", websiteName).
-		Scan(&website.WebsiteID, &website.WebsiteName, &website.URL, &website.Country)
-	if err != nil {
-		return nil, err
-	}
-	return &website, nil
-}
-func countWebsites(db *sql.DB) (int, error) {
-	if db == nil {
-		return -1, dbNil
-	}
-	q := `SELECT count(WebsiteID) FROM Websites`
-	var count int
-	err := db.QueryRow(q).Scan(&count)
-	if err != nil {
-		return 0, err
-	}
-	return count, nil
-}
-
-func getAllWebsites(db *sql.DB, limit, offset int) ([]*Website, error) {
-	if db == nil {
-		return nil, dbNil
-	}
-	websites := []*Website{}
-	rows, err := db.Query("SELECT WebsiteID, WebsiteName, URL, Country FROM websites LIMIT ? OFFSET ?", limit, offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		website := Website{}
-		err = rows.Scan(&website.WebsiteID, &website.WebsiteName, &website.URL, &website.Country)
-		if err != nil {
-			return nil, err
+func getWebsiteByName(websiteName string) (Website, error) {
+	for _, website := range getWebsites(0, 0) {
+		if strings.ToLower(website.WebsiteName) == strings.ToLower(websiteName) {
+			return website, nil
 		}
-		websites = append(websites, &website)
 	}
-
-	return websites, nil
+	return Website{}, fmt.Errorf("no website with name %s", websiteName)
 }
 
-// Update an existing website in the Websites table
-func updateWebsite(db *sql.DB, website *Website) error {
-	if db == nil {
-		return dbNil
+func getWebsites(limit, offset int) []Website {
+	websites := []Website{
+		{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE"},
+		{2, "LookFantastic", "https://lookfantastic.ie", "IE"},
+		{3, "Millies", "https://millies.ie", "IE"},
+		{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE"},
 	}
-	if website == nil {
-		return errors.New("website passed to update website is nil")
+
+	if limit == 0 {
+		limit = len(websites)
 	}
-	_, err := db.Exec("UPDATE Websites SET WebsiteName = ?, URL = ?, Country = ? WHERE WebsiteID = ?",
-		website.WebsiteName, website.URL, website.Country, website.WebsiteID)
-	if err != nil {
-		return err
+
+	toReturn := []Website{}
+	for i := offset; i < limit; i++ {
+		toReturn = append(toReturn, websites[i])
 	}
-	return nil
+	return toReturn
 }
 
-// Delete a website by its ID from the Websites table
-func deleteWebsite(db *sql.DB, websiteID int) error {
-	if db == nil {
-		return dbNil
-	}
-	_, err := db.Exec("DELETE FROM Websites WHERE WebsiteID = ?", websiteID)
+/*
+For a known website, retreive the banner urls and supply them in a string slice
+*/
+func extractWebsiteBannerURLs(website Website) ([]string, error) {
+	res, err := http.Get(website.URL)
 	if err != nil {
-		return err
+		return []string{}, fmt.Errorf("error sending get request to extract banner urls %w", err)
 	}
-	return nil
+
+	defer res.Body.Close()
+
+	// Load the HTML document
+	doc, err := goquery.NewDocumentFromReader(res.Body)
+	if err != nil {
+		return []string{}, fmt.Errorf("error parsing document with go query %w", err)
+	}
+
+	bannerURLs := []string{}
+
+	switch website.WebsiteID {
+	case 1:
+		// beautyfeatures
+		doc.Find("picture img").Each(func(i int, s *goquery.Selection) {
+			// For each item found, get the title
+			value, found := s.Attr("src")
+			if found {
+				bannerURLs = append(bannerURLs, value)
+			}
+		})
+	case 2:
+		// lookfantastic
+		return []string{}, fmt.Errorf("Could not find banner extraction rules for website %s", website.WebsiteName)
+	case 3:
+		// millies
+		milliesBanners := []string{}
+		doc.Find(".homepage-slider-parent .swiper-wrapper img").Each(func(i int, s *goquery.Selection) {
+			// For each item found, get the title
+			value, found := s.Attr("data-src")
+			if found {
+				value = strings.ReplaceAll(value, "{width}", "800")
+				if strings.HasPrefix(value, "//") {
+					value = "https:" + value
+				}
+				milliesBanners = append(milliesBanners, value)
+			}
+		})
+		for i := 0; i < len(milliesBanners); i += 2 {
+			bannerURLs = append(bannerURLs, milliesBanners[i])
+		}
+	case 4:
+		// mcCauleys
+		doc.Find("[data-content-type=slide] [data-background-images]").Each(func(i int, s *goquery.Selection) {
+			value, found := s.Attr("data-background-images")
+			if found {
+				type MCBackgroundImage struct {
+					MobileImage string `json:"mobile_image"`
+				}
+
+				var x MCBackgroundImage
+				value = strings.ReplaceAll(value, "\\\"", "\"")
+				err = json.Unmarshal([]byte(value), &x)
+				if err == nil {
+					bannerURLs = append(bannerURLs, x.MobileImage)
+				}
+			}
+		})
+	default:
+		return []string{}, fmt.Errorf("Could not find banner extraction rules for website %s", website.WebsiteName)
+	}
+
+	return bannerURLs, nil
 }
 
 /* chat service begins */
-func generateOfferDescription(websiteName, url string) (string, error) {
-	c := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
+func generateOfferDescription(websiteName, imageURL string) (string, error) {
+	key := os.Getenv("OPENAI_API_KEY")
+	if key == "" {
+		return "", errors.New("OPENAI_API_KEY env var not set")
+	}
+
+	c := openai.NewClient(key)
 
 	command := fmt.Sprintf("You are a joyful and excited social media manager for a health and beauty magazine with the goal of motivating people to take advantage of today's available beauty offers. Tell your audience what the beauty retailer %s is advertising today and highlight any coupons if available. Keep your response short, playful and suitable for a tweet or instagram caption.", websiteName)
 	model := openai.GPT4VisionPreview
@@ -1897,7 +1660,7 @@ func generateOfferDescription(websiteName, url string) (string, error) {
 					},
 					{
 						Type:     "image_url",
-						ImageURL: &openai.ChatMessageImageURL{URL: url},
+						ImageURL: &openai.ChatMessageImageURL{URL: imageURL},
 					},
 				},
 			},
