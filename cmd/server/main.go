@@ -271,7 +271,7 @@ func server(db *sql.DB) error {
 	mode := Mode(*_mode)
 
 	if port == "" {
-		return fmt.Errorf("Port is required via -port flag.")
+		return fmt.Errorf("port is required via -port flag")
 	}
 
 	if mode == "" {
@@ -298,7 +298,7 @@ func server(db *sql.DB) error {
 
 	tmpl, err := template.New("web").Funcs(funcMap).ParseGlob("web/templates/**/*.tmpl")
 	if err != nil {
-		return fmt.Errorf("Error parsing templates. %v", err)
+		return fmt.Errorf("error parsing templates. %v", err)
 	}
 
 	r := mux.NewRouter()
@@ -355,7 +355,7 @@ func server(db *sql.DB) error {
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err = http.ListenAndServe(":"+port, r); err != nil {
-		return fmt.Errorf("Error during listen and serve. %v", err)
+		return fmt.Errorf("failure to launch. %w", err)
 	}
 	return nil
 }
@@ -405,7 +405,7 @@ func processHashtags(db *sql.DB) error {
 
 				var count int
 				if err := db.QueryRow(q, p.ID, hashtagID).Scan(&count); err != nil {
-					return fmt.Errorf("Could not count relationships between %d & %d. %v", p.ID, hashtagID, err)
+					return fmt.Errorf("could not count relationships between %d & %d. %v", p.ID, hashtagID, err)
 				}
 				if err != nil {
 					return err
@@ -450,7 +450,7 @@ func extractOffersFromBanners(db *sql.DB) error {
 			var bannerCount int
 			err := db.QueryRow(`SELECT count(id) FROM posts WHERE srcURL = ?`, u).Scan(&bannerCount)
 			if err != nil {
-				return fmt.Errorf("Error checking existance of banner %v", err)
+				return fmt.Errorf("error checking existance of banner %v", err)
 			}
 
 			bannerExists := bannerCount > 0
@@ -471,7 +471,7 @@ func extractOffersFromBanners(db *sql.DB) error {
 
 			description, err := generateOfferDescription(website.WebsiteName, url)
 			if err != nil {
-				return fmt.Errorf(`Error getting offer description from chatgpt. 
+				return fmt.Errorf(`error getting offer description from chatgpt. 
 				WebsiteName: %s,
 				URL: %s,
 				%v`, website.WebsiteName, url, err)
@@ -479,7 +479,7 @@ func extractOffersFromBanners(db *sql.DB) error {
 
 			author, err := getRandomPersona(db)
 			if err != nil {
-				return fmt.Errorf("Warning: could not get author from repo. %v", err)
+				return fmt.Errorf("warning: could not get author from repo. %v", err)
 			}
 
 			// I picked 8 randomly for author id
@@ -492,7 +492,7 @@ func extractOffersFromBanners(db *sql.DB) error {
 				"INSERT INTO posts(websiteID, srcURL, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
 				website.WebsiteID, url, authorID, description, time.Now())
 			if err != nil {
-				return fmt.Errorf(`Error saving banner promotion. 
+				return fmt.Errorf(`error saving banner promotion. 
 				Website id: %d,
 				URL: %s,
 				AuthorID: %d,
@@ -538,9 +538,10 @@ func handleGetPromotionsPage(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		promos, err := getPosts(db, params)
 		if err != nil {
-			return fmt.Errorf("Error: %w", err)
+			return fmt.Errorf("failed to get posts %w", err)
 		}
 
+		var buf bytes.Buffer
 		err = tmpl.ExecuteTemplate(w, "promotionspage", map[string]any{"Promotions": promos, "MenuItems": menuItems, "Request": r})
 		if err != nil {
 			return fmt.Errorf("Error: %w", err)
@@ -613,10 +614,6 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 		promos, err := getPosts(db, getPostParams)
 		if err != nil {
 			return fmt.Errorf("Error with postrepo GetAll func at postsvc.GetAll. %w", err)
-		}
-
-		if err != nil {
-			return fmt.Errorf("Could not get banner promotions for feed page.  %v", err)
 		}
 
 		personas, err := getAllPersonas(db)
@@ -966,46 +963,6 @@ func lower(s string) string {
 }
 
 /* template functions end */
-
-func VerifyUnverifiedEmails(db *sql.DB) error {
-
-	q := `SELECT email FROM subscribers WHERE is_verified = 0`
-	rows, err := db.Query(q)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	emails := []string{}
-
-	for rows.Next() {
-		var email string
-		err = rows.Scan(&email)
-		if err != nil {
-			return err
-		}
-		emails = append(emails, email)
-	}
-
-	for _, email := range emails {
-		token, err := generateEmailVerificationToken(10)
-		if err != nil {
-			return fmt.Errorf("error generating token: %w", err)
-		}
-
-		err = addVerficationTokenToEmailRecord(email, token)
-		if err != nil {
-			return fmt.Errorf("error adding verification token to email record: %w", err)
-		}
-
-		err = sendVerificationEmail(email, token)
-		if err != nil {
-			return fmt.Errorf("error sending verification token: %w", err)
-		}
-
-	}
-	return nil
-}
 
 func paginator(r *http.Request) (int, int, int) {
 	q := r.URL.Query()
@@ -1391,15 +1348,6 @@ func initPostHashTagTable(db *sql.DB) error {
 		return err
 	}
 	return nil
-}
-
-func getTopHashtagByPostCount(db *sql.DB, limit int) ([]GetTopByPostCountResponse, error) {
-
-	if db == nil {
-		return nil, dbNil
-	}
-
-	return top, nil
 }
 
 // TODO update these functions to addres websiteID column
