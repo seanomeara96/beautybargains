@@ -34,73 +34,12 @@ const (
 	Prod Mode = "prod"
 )
 
-// Product struct matching the Products table
-type Product struct {
-	ProductID   int       `json:"product_id"`
-	WebsiteID   int       `json:"website_id"`
-	ProductName string    `json:"product_name"`
-	Description string    `json:"description"`
-	URL         string    `json:"url"`
-	BrandID     int       `json:"brand_id"`
-	Image       string    `json:"image"`
-	LastCrawled time.Time `json:"last_crawled"`
-	Brand       Brand
-}
-
-type Producterror struct {
-	Product
-	ErrorReason string
-}
-
-func NewProduct(websiteID int, url string) Product {
-	return Product{
-		WebsiteID:   websiteID,
-		ProductName: url,
-		URL:         url,
-		Description: url,
-	}
-}
-
 // Website struct matching the Websites table
 type Website struct {
 	WebsiteID   int    `json:"website_id"`
 	WebsiteName string `json:"website_name"`
 	URL         string `json:"url"`
 	Country     string `json:"country"`
-}
-
-// PriceData struct matching the PriceData table
-type PriceData struct {
-	PriceID   int       `json:"price_id"`
-	Name      string    `json:"name"`
-	ProductID int       `json:"product_id"`
-	SKU       string    `json:"sku"`
-	Gtin12    string    `json:"gtin12"`
-	Gtin13    string    `json:"gtin13"`
-	Gtin14    string    `json:"gtin14"`
-	Price     float64   `json:"price"`
-	Currency  string    `json:"currency"`
-	InStock   bool      `json:"in_stock"`
-	Timestamp time.Time `json:"timestamp"`
-	Image     string    `json:"image"`
-}
-
-type PriceAtTime struct {
-	Price float64
-	Date  time.Time
-}
-
-type PriceChange struct {
-	ProductID         int
-	CurrentPrice      float64
-	CurrentTimeStamp  time.Time
-	PreviousPrice     float64
-	PreviousTimestamp time.Time
-}
-
-type ProductWithPrice struct {
-	Product
-	PriceData PriceData
 }
 
 type Brand struct {
@@ -134,14 +73,6 @@ type Trending struct {
 	Category  string
 	Phrase    string
 	PostCount int
-}
-
-var DummyTrending = []Trending{
-	{"Topic", "#this", 2},
-	{"Topic", "#that", 2},
-	{"Topic", "#the", 2},
-	{"Topic", "#other", 2},
-	{"Topic", "#thing", 2},
 }
 
 type handleFunc func(w http.ResponseWriter, r *http.Request) error
@@ -180,16 +111,9 @@ type Profile struct {
 	Username string
 }
 
-var DummyProfile = Profile{"https://vogue.implicitdev.com/images/liana-agron69e2c.png", "Leanne"}
-
 type ExtraImage struct {
 	Src string
 	Alt string
-}
-
-var DummyExtraImages = []ExtraImage{
-	{"https://vogue.implicitdev.com/images/liana-agron69e2c.png", "dummy image"},
-	{"https://vogue.implicitdev.com/images/liana-agron69e2c.png", "dummy image"},
 }
 
 type Content struct {
@@ -199,24 +123,11 @@ type Content struct {
 	ExtraText   *template.HTML // optional
 }
 
-var DummyExtraText = template.HTML("Ours is a life of constant reruns. We're always circling back to where we'd we started, then starting all over again. Even if we don't run extra laps that day, we surely will come back for more of the same another day soon.")
-
-var DummyContent = Content{
-	"added 2 new photos",
-	"4 Days Ago",
-	&DummyExtraImages,
-	&DummyExtraText,
-}
-
 type EventMeta struct {
 	CTALink *string
 	Src     *string
 	Likes   int
 }
-
-var DummyEventMetaSrc = "/"
-
-var DummyEventMeta = EventMeta{&DummyEventMetaSrc, &DummyEventMetaSrc, 0}
 
 type Event struct {
 	Profile Profile
@@ -224,16 +135,12 @@ type Event struct {
 	Meta    EventMeta
 }
 
-var DummyEvent = Event{DummyProfile, DummyContent, DummyEventMeta}
-
 /* models end */
 
 var menuItems = []MenuItem{
 	{"/", "Home"},
 	{"/promotions/", "Promotions"},
 	{"/websites/", "Websites"},
-	{"/products/", "Products"},
-	{"/brands/", "Brands"},
 }
 
 func main() {
@@ -248,13 +155,13 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := extractOffersFromBanners(db); err != nil {
+	/*if err := extractOffersFromBanners(db); err != nil {
 		log.Fatal(err)
 	}
 
 	if err := processHashtags(db); err != nil {
 		log.Fatal(err)
-	}
+	}*/
 
 	if err := server(db); err != nil {
 		log.Fatal(err)
@@ -325,6 +232,7 @@ func server(db *sql.DB) error {
 	handle := func(path string, fn handleFunc) *mux.Route {
 		return r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			if err := fn(w, r); err != nil {
+				log.Printf("Error at %s %s => %v", r.Method, r.URL.Path, err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
 		})
@@ -347,10 +255,8 @@ func server(db *sql.DB) error {
 
 	handle("/websites/", handleGetWebsites(db, tmpl)).Methods(http.MethodGet)
 	handle("/websites/{website_id}/", handleGetWebsiteByID(db, tmpl)).Methods(http.MethodGet)
-	handle("/brands/", handleGetBrands(db, tmpl)).Methods(http.MethodGet)
-	// handle("/brands/{brand_path}/", handleGetBrandByPath(db, tmpl)).Methods(http.MethodGet)
 	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, tmpl)).Methods(http.MethodPost)
-	// handle("/subscribe/", handleGetSubscribePage(db, tmpl)).Methods(http.MethodGet)
+	handle("/subscribe/", handleGetSubscribePage(db, tmpl)).Methods(http.MethodGet)
 	handle("/subscribe/verify", handleGetVerifySubscription(db, tmpl)).Methods(http.MethodGet)
 
 	log.Println("Server listening on http://localhost:" + port)
@@ -882,6 +788,12 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, t
 	}
 }
 
+func handleGetSubscribePage(db *sql.DB, tmpl *template.Template) handleFunc {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		return errors.New("not implemented")
+	}
+}
+
 func handleGetVerifySubscription(db *sql.DB, tmpl *template.Template) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		vars := r.URL.Query()
@@ -1291,20 +1203,6 @@ func updatePersona(db *sql.DB, p *Persona) error {
 
 	q := `UPDATE models SET name = ?, description = ?, profile_photo = ? WHERE id = ?`
 	_, err := db.Exec(q, p.Name, p.Description, p.ProfilePhoto, p.ID)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// delete one persona
-func deletePersonaByID(db *sql.DB, id int) error {
-	if db == nil {
-		return errDBNil
-	}
-
-	q := `DELETE FROM models WHERE id = ?`
-	_, err := db.Exec(q, id)
 	if err != nil {
 		return err
 	}
