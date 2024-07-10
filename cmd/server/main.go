@@ -47,7 +47,7 @@ type Product struct {
 	Brand       Brand
 }
 
-type ProductError struct {
+type Producterror struct {
 	Product
 	ErrorReason string
 }
@@ -542,9 +542,13 @@ func handleGetPromotionsPage(db *sql.DB, tmpl *template.Template) handleFunc {
 		}
 
 		var buf bytes.Buffer
-		err = tmpl.ExecuteTemplate(w, "promotionspage", map[string]any{"Promotions": promos, "MenuItems": menuItems, "Request": r})
+		err = tmpl.ExecuteTemplate(&buf, "promotionspage", map[string]any{"Promotions": promos, "MenuItems": menuItems, "Request": r})
 		if err != nil {
-			return fmt.Errorf("Error: %w", err)
+			return fmt.Errorf("could not render template for promotions page %w", err)
+		}
+
+		if _, err := w.Write(buf.Bytes()); err != nil {
+			return fmt.Errorf("could not write promtion page bytes to response: %w", err)
 		}
 
 		return nil
@@ -574,8 +578,9 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 			if err == nil {
 				params.WebsiteID = website.WebsiteID
 			} else {
-				log.Printf("Warning: User tried to get posts for %s. %v", websiteName, err)
+				params.WebsiteID = 0
 			}
+
 		}
 
 		if hashtagQuery != "" {
@@ -586,12 +591,12 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 		if params.Hashtag != "" {
 			hashtagID, err := getHashtagIDByPhrase(db, params.Hashtag)
 			if err != nil {
-				return fmt.Errorf("Could not get hashtag id in get by phrase. %w", err)
+				return fmt.Errorf("could not get hashtag id in get by phrase. %w", err)
 			}
 
 			postIdRows, err := db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
 			if err != nil {
-				return fmt.Errorf("Error getting post_ids from post_hashtags db. %w", err)
+				return fmt.Errorf("error getting post_ids from post_hashtags db. %w", err)
 			}
 			defer postIdRows.Close()
 
@@ -600,7 +605,7 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 				var id int
 				err := postIdRows.Scan(&id)
 				if err != nil {
-					return fmt.Errorf("Error scanning post_id in getposts. %w", err)
+					return fmt.Errorf("error scanning post_id in getposts. %w", err)
 				}
 				ids = append(ids, id)
 			}
@@ -613,12 +618,12 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 		getPostParams.WebsiteID = params.WebsiteID
 		promos, err := getPosts(db, getPostParams)
 		if err != nil {
-			return fmt.Errorf("Error with postrepo GetAll func at postsvc.GetAll. %w", err)
+			return fmt.Errorf("error with postrepo GetAll func at postsvc.GetAll. %w", err)
 		}
 
 		personas, err := getAllPersonas(db)
 		if err != nil {
-			return fmt.Errorf("Could not get all personas feed page. %w", err)
+			return fmt.Errorf("could not get all personas feed page. %w", err)
 		}
 
 		events := []Event{}
@@ -679,7 +684,7 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 			e.Content.ExtraText = &extraTextHTML
 			website, err := getWebsiteByID(promos[i].WebsiteID)
 			if err != nil {
-				return fmt.Errorf("Could not get website by id %d. %v", promos[i].WebsiteID, err)
+				return fmt.Errorf("could not get website by id %d. %v", promos[i].WebsiteID, err)
 			}
 			e.Content.Summary = fmt.Sprintf("posted an update about %s", website.WebsiteName)
 			e.Content.ExtraImages = nil
@@ -705,22 +710,14 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 			}
 			top = append(top, row)
 		} // should expect an array like {hashtag, postcount}
-		if err != nil {
-			return fmt.Errorf("Could not get postHashtags at GetTrending. %v", err)
-		}
 
 		var trendingHashtags []*Trending
 		for _, row := range top {
 			hashtag, err := getHashtagByID(db, row.HashtagID)
 			if err != nil {
-				return fmt.Errorf("Could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
+				return fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
 			}
 			trendingHashtags = append(trendingHashtags, &Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
-		}
-
-		if err != nil {
-			return fmt.Errorf("Error trying to get trending hashtags in feed handler. %v", err)
-
 		}
 
 		var buf bytes.Buffer
@@ -752,7 +749,7 @@ func handleGetWebsites(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		err := tmpl.ExecuteTemplate(w, "websites", map[string]any{"MenuItems": menuItems, "Request": r, "Websites": websites, "Pagination": pagination})
 		if err != nil {
-			return fmt.Errorf("Error: %v", err)
+			return fmt.Errorf("error: %v", err)
 		}
 		return nil
 	}
@@ -769,13 +766,13 @@ func handleGetWebsiteByID(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		website, err := getWebsiteByID(websiteID)
 		if err != nil {
-			return fmt.Errorf("Error %v", err)
+			return fmt.Errorf("error %v", err)
 		}
 
 		var buf bytes.Buffer
 		err = tmpl.ExecuteTemplate(&buf, "website", map[string]any{"MenuItems": menuItems, "Request": r, "Website": website})
 		if err != nil {
-			return fmt.Errorf("Error %v", err)
+			return fmt.Errorf("error %v", err)
 		}
 
 		if _, err := w.Write(buf.Bytes()); err != nil {
@@ -792,12 +789,12 @@ func handleGetBrands(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		brands, err := getBrands(db, limit, offset)
 		if err != nil {
-			return fmt.Errorf("Error getting brands => %v", err)
+			return fmt.Errorf("error getting brands => %v", err)
 		}
 
 		brandCount, err := countAllBrands(db)
 		if err != nil {
-			return fmt.Errorf("Error counting brands => %v", err)
+			return fmt.Errorf("error counting brands => %v", err)
 		}
 
 		maxPages := int(math.Ceil(float64(brandCount) / float64(limit)))
@@ -820,7 +817,9 @@ func handleGetBrands(db *sql.DB, tmpl *template.Template) handleFunc {
 
 func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, tmpl *template.Template) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		err := r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			return fmt.Errorf("could not parse form: %w", err)
+		}
 
 		email := r.FormValue("email")
 		consent := r.FormValue("consent")
@@ -871,11 +870,11 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, t
 
 			err = tmpl.ExecuteTemplate(w, "subscriptionsuccess", nil)
 			if err != nil {
-				return fmt.Errorf("Error: %v", err)
+				return fmt.Errorf("error: %v", err)
 			}
 		}
 
-		err = tmpl.ExecuteTemplate(w, "subscriptionform", nil)
+		err := tmpl.ExecuteTemplate(w, "subscriptionform", nil)
 		if err != nil {
 			return err
 		}
@@ -906,7 +905,7 @@ func handleGetVerifySubscription(db *sql.DB, tmpl *template.Template) handleFunc
 
 		err = tmpl.ExecuteTemplate(w, "subscriptionverification", map[string]any{"MenuItems": menuItems, "Request": r})
 		if err != nil {
-			return fmt.Errorf("Error: could not render subscription verification page => %v", err)
+			return fmt.Errorf("error: could not render subscription verification page => %v", err)
 		}
 		return nil
 	}
@@ -975,7 +974,7 @@ func paginator(r *http.Request) (int, int, int) {
 	if _limit != "" {
 		l, err := strconv.Atoi(_limit)
 		if err != nil {
-			log.Printf("Error parsing limit from %s, %v", r.URL.String(), err)
+			log.Printf("error parsing limit from %s, %v", r.URL.String(), err)
 		} else {
 			limit = l
 		}
@@ -985,7 +984,7 @@ func paginator(r *http.Request) (int, int, int) {
 	if _offset != "" {
 		o, err := strconv.Atoi(_offset)
 		if err != nil {
-			log.Printf("Error parsing offset from %s, %v", r.URL.String(), err)
+			log.Printf("error parsing offset from %s, %v", r.URL.String(), err)
 		} else {
 			offset = o
 		}
@@ -995,7 +994,7 @@ func paginator(r *http.Request) (int, int, int) {
 	if _page != "" {
 		p, err := strconv.Atoi(_page)
 		if err != nil {
-			log.Printf("Error parsing page from %s, %v", r.URL.String(), err)
+			log.Printf("error parsing page from %s, %v", r.URL.String(), err)
 		} else {
 			page = p
 			offset = (limit * (p - 1))
@@ -1007,12 +1006,12 @@ func paginator(r *http.Request) (int, int, int) {
 
 /* db funcs */
 
-var dbNil = errors.New("db is nil")
+var errDBNil = errors.New("db is nil")
 
 /* Brand DB Funcs */
 func getBrandByID(db *sql.DB, id int) (*Brand, error) {
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 	q := `SELECT id, name, path FROM brands WHERE id = ?`
 	var brand Brand
@@ -1025,7 +1024,7 @@ func getBrandByID(db *sql.DB, id int) (*Brand, error) {
 
 func getBrands(db *sql.DB, limit, offset int) ([]*Brand, error) {
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 
 	q := `SELECT id, name, path FROM brands ORDER BY name ASC LIMIT ? OFFSET ?`
@@ -1052,7 +1051,7 @@ func getBrands(db *sql.DB, limit, offset int) ([]*Brand, error) {
 
 func countAllBrands(db *sql.DB) (int, error) {
 	if db == nil {
-		return -1, dbNil
+		return -1, errDBNil
 	}
 
 	q := `SELECT count(id) as brand_count FROM Brands`
@@ -1066,7 +1065,7 @@ func countAllBrands(db *sql.DB) (int, error) {
 
 func insertBrand(db *sql.DB, brand *Brand) (int, error) {
 	if db == nil {
-		return -1, dbNil
+		return -1, errDBNil
 	}
 
 	if brand == nil {
@@ -1086,7 +1085,7 @@ func insertBrand(db *sql.DB, brand *Brand) (int, error) {
 
 func countBrandsByName(db *sql.DB, brandName string) (int, error) {
 	if db == nil {
-		return -1, dbNil
+		return -1, errDBNil
 	}
 
 	q := `SELECT count(id) FROM Brands WHERE name = ?`
@@ -1100,7 +1099,7 @@ func countBrandsByName(db *sql.DB, brandName string) (int, error) {
 
 func getBrandByName(db *sql.DB, brandName string) (*Brand, error) {
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 
 	q := `SELECT id, name, path FROM brands WHERE name = ?`
@@ -1114,7 +1113,7 @@ func getBrandByName(db *sql.DB, brandName string) (*Brand, error) {
 
 func getBrandByPath(db *sql.DB, brandPath string) (*Brand, error) {
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 
 	q := `SELECT id, name, path FROM brands WHERE path = ?`
@@ -1128,14 +1127,14 @@ func getBrandByPath(db *sql.DB, brandPath string) (*Brand, error) {
 
 func updateBrand(db *sql.DB, brand *Brand) error {
 	if db == nil {
-		return dbNil
+		return errDBNil
 	}
 
 	if brand == nil {
 		return errors.New("brand passed to updateBrand is nil")
 	}
 	if brand.ID < 1 {
-		return errors.New("Need to supply a brand id to update")
+		return errors.New("need to supply a brand id to update")
 	}
 	q := `UPDATE brands SET name = ?, path = ? WHERE id = ?`
 	_, err := db.Exec(q, brand.Name, brand.Path, brand.ID)
@@ -1147,11 +1146,11 @@ func updateBrand(db *sql.DB, brand *Brand) error {
 
 func deleteBrandByID(db *sql.DB, brandID int) error {
 	if db == nil {
-		return dbNil
+		return errDBNil
 	}
 
 	if brandID < 1 {
-		return errors.New("Need to supply a valid brand id to update")
+		return errors.New("need to supply a valid brand id to update")
 	}
 
 	q := `DELETE FROM brands WHERE id = ?`
@@ -1166,7 +1165,7 @@ func deleteBrandByID(db *sql.DB, brandID int) error {
 
 func insertHashtag(db *sql.DB, h *Hashtag) (lastInsertID int, err error) {
 	if db == nil {
-		return -1, dbNil
+		return -1, errDBNil
 	}
 
 	if h == nil {
@@ -1188,7 +1187,7 @@ func insertHashtag(db *sql.DB, h *Hashtag) (lastInsertID int, err error) {
 
 func countHashtagsByPhrase(db *sql.DB, phrase string) (int, error) {
 	if db == nil {
-		return -1, dbNil
+		return -1, errDBNil
 	}
 
 	var count int
@@ -1201,7 +1200,7 @@ func countHashtagsByPhrase(db *sql.DB, phrase string) (int, error) {
 
 func getHashtagIDByPhrase(db *sql.DB, phrase string) (int, error) {
 	if db == nil {
-		return -1, dbNil
+		return -1, errDBNil
 	}
 
 	q := `SELECT id FROM hashtags WHERE phrase = ?`
@@ -1215,7 +1214,7 @@ func getHashtagIDByPhrase(db *sql.DB, phrase string) (int, error) {
 
 func getHashtagByID(db *sql.DB, id int) (*Hashtag, error) {
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 
 	q := `SELECT id, phrase from hashtags WHERE id = ?`
@@ -1231,7 +1230,7 @@ func getHashtagByID(db *sql.DB, id int) (*Hashtag, error) {
 // get all
 func getAllPersonas(db *sql.DB) ([]*Persona, error) {
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 
 	q := `SELECT id, name, description, profile_photo FROM models`
@@ -1255,20 +1254,20 @@ func getAllPersonas(db *sql.DB) ([]*Persona, error) {
 // get one persona
 func getPersonaByID(db *sql.DB, id int) (*Persona, error) {
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 
 	if id < 1 {
 		return nil, fmt.Errorf("please supply a valid id")
 	}
 
-	return nil, fmt.Errorf("Not yet implmented")
+	return nil, fmt.Errorf("not yet implmented")
 }
 
 // get one random persona
 func getRandomPersona(db *sql.DB) (*Persona, error) {
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 
 	q := `SELECT id, name, description, profile_photo FROM models ORDER BY RANDOM() LIMIT 1`
@@ -1283,7 +1282,7 @@ func getRandomPersona(db *sql.DB) (*Persona, error) {
 // update one persona
 func updatePersona(db *sql.DB, p *Persona) error {
 	if db == nil {
-		return dbNil
+		return errDBNil
 	}
 
 	if p == nil {
@@ -1301,7 +1300,7 @@ func updatePersona(db *sql.DB, p *Persona) error {
 // delete one persona
 func deletePersonaByID(db *sql.DB, id int) error {
 	if db == nil {
-		return dbNil
+		return errDBNil
 	}
 
 	q := `DELETE FROM models WHERE id = ?`
@@ -1317,7 +1316,7 @@ func deletePersonaByID(db *sql.DB, id int) error {
 func insertPostHashtagRelationship(db *sql.DB, postID, hashtagID int) error {
 
 	if db == nil {
-		return dbNil
+		return errDBNil
 	}
 
 	_, err := db.Exec("INSERT INTO post_hashtags(post_id, hashtag_id) VALUES (?, ?)", postID, hashtagID)
@@ -1335,7 +1334,7 @@ type GetTopByPostCountResponse struct {
 func initPostHashTagTable(db *sql.DB) error {
 
 	if db == nil {
-		return dbNil
+		return errDBNil
 	}
 
 	q := `CREATE TABLE 
@@ -1354,7 +1353,7 @@ func initPostHashTagTable(db *sql.DB) error {
 func updatePost(db *sql.DB, p *Post) error {
 
 	if db == nil {
-		return dbNil
+		return errDBNil
 	}
 
 	if p == nil {
@@ -1396,7 +1395,7 @@ type getPostParams struct {
 func getPosts(db *sql.DB, params getPostParams) ([]*Post, error) {
 
 	if db == nil {
-		return nil, dbNil
+		return nil, errDBNil
 	}
 
 	promos := []*Post{}
@@ -1460,15 +1459,6 @@ CREATE TABLE subscribers (
 );
 */
 
-func subscribe(db *sql.DB, email string) error {
-
-	if db == nil {
-		return dbNil
-	}
-
-	return nil
-}
-
 /* website funcs*/
 
 // Retrieve a website by its ID from the Websites table
@@ -1484,7 +1474,7 @@ func getWebsiteByID(websiteID int) (Website, error) {
 // Retrieve a website by its ID from the Websites table
 func getWebsiteByName(websiteName string) (Website, error) {
 	for _, website := range getWebsites(0, 0) {
-		if strings.ToLower(website.WebsiteName) == strings.ToLower(websiteName) {
+		if strings.EqualFold(website.WebsiteName, websiteName) {
 			return website, nil
 		}
 	}
@@ -1541,7 +1531,7 @@ func extractWebsiteBannerURLs(website Website) ([]string, error) {
 		})
 	case 2:
 		// lookfantastic
-		return []string{}, fmt.Errorf("Could not find banner extraction rules for website %s", website.WebsiteName)
+		return []string{}, fmt.Errorf("could not find banner extraction rules for website %s", website.WebsiteName)
 	case 3:
 		// millies
 		milliesBanners := []string{}
@@ -1577,7 +1567,7 @@ func extractWebsiteBannerURLs(website Website) ([]string, error) {
 			}
 		})
 	default:
-		return []string{}, fmt.Errorf("Could not find banner extraction rules for website %s", website.WebsiteName)
+		return []string{}, fmt.Errorf("could not find banner extraction rules for website %s", website.WebsiteName)
 	}
 
 	return bannerURLs, nil
