@@ -156,15 +156,15 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	/*
-		if err := extractOffersFromBanners(db); err != nil {
-			log.Fatal(err)
-		}
 
-		if err := processHashtags(db); err != nil {
-			log.Fatal(err)
-		}
-	*/
+	if err := extractOffersFromBanners(db); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := processHashtags(db); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := server(db); err != nil {
 		log.Fatal(err)
 	}
@@ -391,10 +391,7 @@ func extractOffersFromBanners(db *sql.DB) error {
 
 			description, err := generateOfferDescription(website.WebsiteName, url)
 			if err != nil {
-				return fmt.Errorf(`error getting offer description from chatgpt. 
-				WebsiteName: %s,
-				URL: %s,
-				%v`, website.WebsiteName, url, err)
+				return fmt.Errorf(`error getting offer description from chatgpt: %v`, err)
 			}
 
 			author := getRandomPersona()
@@ -406,12 +403,7 @@ func extractOffersFromBanners(db *sql.DB) error {
 				"INSERT INTO posts(website_id, src_url, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
 				website.WebsiteID, url, authorID, description, time.Now())
 			if err != nil {
-				return fmt.Errorf(`error saving banner promotion. 
-				Website id: %d,
-				URL: %s,
-				AuthorID: %d,
-				Description: %s,
-				%v`, website.WebsiteID, url, authorID, description, err)
+				return fmt.Errorf(`error saving banner promotion: %w`, err)
 			}
 		}
 
@@ -463,10 +455,7 @@ func handleGetPromotionsPage(db *sql.DB, render renderFunc) htmlHandleFunc {
 
 func handleGetFeed(db *sql.DB, render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-
-		vars := mux.Vars(r)
-		websiteName := vars["websiteName"]
-
+		websiteName := mux.Vars(r)["websiteName"]
 		hashtagQuery := r.URL.Query().Get("hashtag")
 
 		type FeedParams struct {
@@ -589,11 +578,10 @@ func handleGetFeed(db *sql.DB, render renderFunc) htmlHandleFunc {
 				return nil, fmt.Errorf("could not get website by id %d. %v", promos[i].WebsiteID, err)
 			}
 			e.Content.Summary = fmt.Sprintf("posted an update about %s", website.WebsiteName)
-			e.Content.ExtraImages = nil
+			// e.Content.ExtraImages = nil
+			e.Content.ExtraImages = &[]ExtraImage{{promos[i].SrcURL, ""}}
 			events = append(events, e)
 		}
-
-		websites := getWebsites(10, 0)
 
 		limit := 5
 		q := `SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT ?`
@@ -621,7 +609,14 @@ func handleGetFeed(db *sql.DB, render renderFunc) htmlHandleFunc {
 			trendingHashtags = append(trendingHashtags, &Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
 		}
 
-		data := map[string]any{"Events": events, "Websites": websites, "Trending": trendingHashtags, "Request": r, "MenuItems": menuItems}
+		data := map[string]any{
+			"Events":    events,
+			"Websites":  getWebsites(0, 0),
+			"Trending":  trendingHashtags,
+			"Request":   r,
+			"MenuItems": menuItems,
+		}
+
 		return render("feedpage", data)
 	}
 
