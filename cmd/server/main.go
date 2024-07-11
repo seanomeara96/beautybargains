@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
+
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,6 +12,7 @@ import (
 	"html/template"
 	"log"
 	"math"
+	"math/rand"
 	"net/http"
 	"os"
 	"regexp"
@@ -75,6 +76,7 @@ type Trending struct {
 	PostCount int
 }
 
+type renderFunc func(name string, data any) ([]byte, error)
 type htmlHandleFunc func(w http.ResponseWriter, r *http.Request) ([]byte, error)
 
 type MenuItem struct {
@@ -154,18 +156,19 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
+	/*
+		if err := extractOffersFromBanners(db); err != nil {
+			log.Fatal(err)
+		}
 
-	/*if err := extractOffersFromBanners(db); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := processHashtags(db); err != nil {
-		log.Fatal(err)
-	}*/
-
+		if err := processHashtags(db); err != nil {
+			log.Fatal(err)
+		}
+	*/
 	if err := server(db); err != nil {
 		log.Fatal(err)
 	}
+
 }
 
 func server(db *sql.DB) error {
@@ -231,41 +234,47 @@ func server(db *sql.DB) error {
 
 	handle := func(path string, fn htmlHandleFunc) *mux.Route {
 		return r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+
 			reportErr := func(err error) {
-				log.Printf("Error at %s %s => %v", r.Method, r.URL.Path, err)
+				err = fmt.Errorf("Error at %s %s => %v", r.Method, r.URL.Path, err)
+				log.Print(err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
+
 			bytes, err := fn(w, r)
 			if err != nil {
 				reportErr(err)
 				return
 			}
+
 			if _, err := w.Write(bytes); err != nil {
 				reportErr(err)
 			}
+
 		})
 	}
+
+	render := newRenderFunc(tmpl)
 
 	/*
 		Home / Index Handler
 	*/
-	handle("/", handleGetHomePage(tmpl))
+	handle("/", handleGetHomePage(render))
 
 	/*
 		Promotions Handlers
 	*/
-	handle("/promotions/", handleGetPromotionsPage(db, tmpl)).Methods(http.MethodGet)
-	handle("/promotions/{websiteName}", handleGetPromotionsPage(db, tmpl)).Methods(http.MethodGet)
-	handle("/{websiteName}/promotions/", handleGetPromotionsPage(db, tmpl)).Methods(http.MethodGet)
-
-	handle("/feed/", handleGetFeed(db, tmpl)).Methods(http.MethodGet)
-	handle("/feed/{websiteName}/", handleGetFeed(db, tmpl)).Methods(http.MethodGet)
-
-	handle("/websites/", handleGetWebsites(getWebsites, tmpl)).Methods(http.MethodGet)
-	handle("/websites/{website_id}/", handleGetWebsiteByID(getWebsiteByID, tmpl)).Methods(http.MethodGet)
-	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, tmpl)).Methods(http.MethodPost)
-	handle("/subscribe/", handleGetSubscribePage(tmpl)).Methods(http.MethodGet)
-	handle("/subscribe/verify", handleGetVerifySubscription(db, tmpl)).Methods(http.MethodGet)
+	handle("/promotions/", handleGetPromotionsPage(db, render)).Methods(http.MethodGet)
+	handle("/team/", handleGetTeamPage(getPersonas, render)).Methods(http.MethodGet)
+	handle("/promotions/{websiteName}", handleGetPromotionsPage(db, render)).Methods(http.MethodGet)
+	handle("/{websiteName}/promotions/", handleGetPromotionsPage(db, render)).Methods(http.MethodGet)
+	handle("/feed/", handleGetFeed(db, render)).Methods(http.MethodGet)
+	handle("/feed/{websiteName}/", handleGetFeed(db, render)).Methods(http.MethodGet)
+	handle("/websites/", handleGetWebsites(getWebsites, render)).Methods(http.MethodGet)
+	handle("/websites/{website_id}/", handleGetWebsiteByID(getWebsiteByID, render)).Methods(http.MethodGet)
+	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, render)).Methods(http.MethodPost)
+	handle("/subscribe/", handleGetSubscribePage(render)).Methods(http.MethodGet)
+	handle("/subscribe/verify", handleGetVerifySubscription(db, render)).Methods(http.MethodGet)
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err = http.ListenAndServe(":"+port, r); err != nil {
@@ -315,7 +324,7 @@ func processHashtags(db *sql.DB) error {
 					return err
 				}
 
-				q := `SELECT count(*) FROM 	post_hashtags WHERE post_id = ? AND hashtag_id = ?`
+				q := `SELECT count(*) FROM post_hashtags WHERE post_id = ? AND hashtag_id = ?`
 
 				var count int
 				if err := db.QueryRow(q, p.ID, hashtagID).Scan(&count); err != nil {
@@ -359,7 +368,7 @@ func extractOffersFromBanners(db *sql.DB) error {
 		for _, u := range bannerURLs {
 
 			var bannerCount int
-			err := db.QueryRow(`SELECT count(id) FROM posts WHERE srcURL = ?`, u).Scan(&bannerCount)
+			err := db.QueryRow(`SELECT count(id) FROM posts WHERE src_url = ?`, u).Scan(&bannerCount)
 			if err != nil {
 				return fmt.Errorf("error checking existance of banner %v", err)
 			}
@@ -388,19 +397,13 @@ func extractOffersFromBanners(db *sql.DB) error {
 				%v`, website.WebsiteName, url, err)
 			}
 
-			author, err := getRandomPersona(db)
-			if err != nil {
-				return fmt.Errorf("warning: could not get author from repo. %v", err)
-			}
+			author := getRandomPersona()
 
 			// I picked 8 randomly for author id
-			authorID := 8
-			if author != nil {
-				authorID = author.ID
-			}
+			authorID := author.ID
 
 			_, err = db.Exec(
-				"INSERT INTO posts(websiteID, srcURL, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
+				"INSERT INTO posts(website_id, src_url, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
 				website.WebsiteID, url, authorID, description, time.Now())
 			if err != nil {
 				return fmt.Errorf(`error saving banner promotion. 
@@ -421,17 +424,19 @@ func extractOffersFromBanners(db *sql.DB) error {
 }
 
 /* Handlers */
-func handleGetHomePage(tmpl *template.Template) htmlHandleFunc {
+func handleGetHomePage(render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-		var buf bytes.Buffer
-		if err := tmpl.ExecuteTemplate(&buf, "home", map[string]any{"MenuItems": menuItems, "Request": r}); err != nil {
-			return nil, err
-		}
-		return buf.Bytes(), nil
+		return render("home", map[string]any{"MenuItems": menuItems, "Request": r})
 	}
 }
 
-func handleGetPromotionsPage(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+func handleGetTeamPage(getPersonas func(a, b int) []Persona, render renderFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+		return render("teampage", map[string]any{"MenuItems": menuItems, "Request": r, "Team": getPersonas(0, 0)})
+	}
+}
+
+func handleGetPromotionsPage(db *sql.DB, render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		vars := mux.Vars(r)
 		websiteName := vars["websiteName"]
@@ -452,17 +457,11 @@ func handleGetPromotionsPage(db *sql.DB, tmpl *template.Template) htmlHandleFunc
 			return nil, fmt.Errorf("failed to get posts %w", err)
 		}
 
-		var buf bytes.Buffer
-		err = tmpl.ExecuteTemplate(&buf, "promotionspage", map[string]any{"Promotions": promos, "MenuItems": menuItems, "Request": r})
-		if err != nil {
-			return nil, fmt.Errorf("could not render template for promotions page %w", err)
-		}
-
-		return buf.Bytes(), nil
+		return render("promotionspage", map[string]any{"Promotions": promos, "MenuItems": menuItems, "Request": r})
 	}
 }
 
-func handleGetFeed(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+func handleGetFeed(db *sql.DB, render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 
 		vars := mux.Vars(r)
@@ -525,18 +524,14 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
 		getPostParams.WebsiteID = params.WebsiteID
 		promos, err := getPosts(db, getPostParams)
 		if err != nil {
-			return nil, fmt.Errorf("error with postrepo GetAll func at postsvc.GetAll. %w", err)
+			return nil, fmt.Errorf("cant get posts: %w", err)
 		}
 
-		personas, err := getAllPersonas(db)
-		if err != nil {
-			return nil, fmt.Errorf("could not get all personas feed page. %w", err)
-		}
+		personas := getPersonas(0, 0)
 
 		events := []Event{}
 		for i := 0; i < len(promos); i++ {
 			e := Event{}
-
 			for _, persona := range personas {
 				if persona.ID == promos[i].AuthorID {
 					e.Profile.Username = persona.Name
@@ -601,11 +596,10 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
 		websites := getWebsites(10, 0)
 
 		limit := 5
-		q := `SELECT  hashtag_id,  count(post_id) FROM post_hashtags GROUP BY hashtag_idORDER BY count(post_id) DESC LIMIT ?`
-
+		q := `SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT ?`
 		rows, err := db.Query(q, limit)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("could not count hashtag mentions in db: %w", err)
 		}
 		defer rows.Close()
 
@@ -627,21 +621,15 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
 			trendingHashtags = append(trendingHashtags, &Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
 		}
 
-		var buf bytes.Buffer
-
 		data := map[string]any{"Events": events, "Websites": websites, "Trending": trendingHashtags, "Request": r, "MenuItems": menuItems}
-		if err := tmpl.ExecuteTemplate(&buf, "feedpage", data); err != nil {
-			return nil, fmt.Errorf("problem rendering the feedpage template")
-		}
-
-		return buf.Bytes(), nil
+		return render("feedpage", data)
 	}
 
 }
 
-func handleGetWebsites(getWebsites func(limit, offset int) []Website, tmpl *template.Template) htmlHandleFunc {
+func handleGetWebsites(getWebsites func(limit, offset int) []Website, render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-		limit, offset, page := paginator(r)
+		limit, offset, page := paginator(r, 50)
 		websites := getWebsites(limit, offset)
 
 		count := len(getWebsites(0, 0))
@@ -650,69 +638,58 @@ func handleGetWebsites(getWebsites func(limit, offset int) []Website, tmpl *temp
 
 		pagination := Pagination{page, maxPages}
 
-		var buf bytes.Buffer
-		err := tmpl.ExecuteTemplate(&buf, "websites", map[string]any{"MenuItems": menuItems, "Request": r, "Websites": websites, "Pagination": pagination})
-		if err != nil {
-			return nil, fmt.Errorf("error: %v", err)
-		}
-
-		return buf.Bytes(), nil
+		return render("websites", map[string]any{"MenuItems": menuItems, "Request": r, "Websites": websites, "Pagination": pagination})
 	}
 }
 
-func handleGetWebsiteByID(getWebsiteByID func(websiteID int) (Website, error), tmpl *template.Template) htmlHandleFunc {
+func handleGetWebsiteByID(getWebsiteByID func(website_id int) (Website, error), render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		vars := mux.Vars(r)
 
-		websiteID, err := strconv.Atoi(vars["website_id"])
+		website_id, err := strconv.Atoi(vars["website_id"])
 		if err != nil {
-			websiteID = 1
+			website_id = 1
 		}
 
-		website, err := getWebsiteByID(websiteID)
-		if err != nil {
-			return nil, fmt.Errorf("error %v", err)
-		}
-
-		var buf bytes.Buffer
-		err = tmpl.ExecuteTemplate(&buf, "website", map[string]any{"MenuItems": menuItems, "Request": r, "Website": website})
+		website, err := getWebsiteByID(website_id)
 		if err != nil {
 			return nil, fmt.Errorf("error %v", err)
 		}
 
-		return buf.Bytes(), nil
+		return render("website", map[string]any{"MenuItems": menuItems, "Request": r, "Website": website})
 	}
 }
 
-func handleGetBrands(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+func handleGetBrands(db *sql.DB, render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-		limit, offset, page := paginator(r)
+		limit, offset, page := paginator(r, 50)
 
 		brands, err := getBrands(db, limit, offset)
 		if err != nil {
-			return nil, fmt.Errorf("error getting brands => %v", err)
+			return nil, err
 		}
 
 		brandCount, err := countAllBrands(db)
 		if err != nil {
-			return nil, fmt.Errorf("error counting brands => %v", err)
+			return nil, err
 		}
 
 		maxPages := int(math.Ceil(float64(brandCount) / float64(limit)))
 
 		pagination := Pagination{page, maxPages}
 
-		var buf bytes.Buffer
-		err = tmpl.ExecuteTemplate(&buf, "brands", map[string]any{"MenuItems": menuItems, "Request": r, "Brands": brands, "Pagination": pagination})
-		if err != nil {
-			return nil, err
+		data := map[string]any{
+			"MenuItems":  menuItems,
+			"Request":    r,
+			"Brands":     brands,
+			"Pagination": pagination,
 		}
 
-		return buf.Bytes(), nil
+		return render("brands", data)
 	}
 }
 
-func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		if err := r.ParseForm(); err != nil {
 			return nil, fmt.Errorf("could not parse form: %w", err)
@@ -765,39 +742,27 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, t
 					return fmt.Errorf("failed to send verification token => %w", err)
 				}*/
 
-			var buffer bytes.Buffer
-			if err = tmpl.ExecuteTemplate(&buffer, "subscriptionsuccess", nil); err != nil {
-				return nil, fmt.Errorf("could not render ubscription success template: %w", err)
-			}
+			return render("subscriptionsuccess", nil)
+		}
 
-			return buffer.Bytes(), nil
-		}
-		var buffer bytes.Buffer
-		if err := tmpl.ExecuteTemplate(&buffer, "subscriptionform", nil); err != nil {
-			return nil, err
-		}
-		return buffer.Bytes(), nil
+		return render("subscriptionform", nil)
 	}
 }
 
-func handleGetSubscribePage(tmpl *template.Template) htmlHandleFunc {
+func handleGetSubscribePage(render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-		var buf bytes.Buffer
-		if err := tmpl.ExecuteTemplate(&buf, "subscribepage", map[string]any{"MenuItems": menuItems, "Request": r}); err != nil {
-			return nil, err
-		}
-		return buf.Bytes(), nil
+		return render("subscribepage", map[string]any{"MenuItems": menuItems, "Request": r})
 	}
 }
 
-func handleGetVerifySubscription(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+func handleGetVerifySubscription(db *sql.DB, render renderFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		vars := r.URL.Query()
 		token := vars.Get("token")
 
 		if token == "" {
 			// ("Warning: subscription verification attempted with no token")
-			return handleGetHomePage(tmpl)(w, r)
+			return handleGetHomePage(render)(w, r)
 		}
 
 		q := `UPDATE subscribers SET is_verified = 1 WHERE verification_token = ?`
@@ -807,17 +772,14 @@ func handleGetVerifySubscription(db *sql.DB, tmpl *template.Template) htmlHandle
 		}
 
 		// subscription confirmed
-		var buffer bytes.Buffer
-		if err = tmpl.ExecuteTemplate(&buffer, "subscriptionverification", map[string]any{"MenuItems": menuItems, "Request": r}); err != nil {
-			return nil, fmt.Errorf("error: could not render subscription verification page => %v", err)
-		}
-		return buffer.Bytes(), nil
+
+		return render("subscriptionverification", map[string]any{"MenuItems": menuItems, "Request": r})
 	}
 }
 
 /* handlers end */
 
-/* tempalte functions start*/
+/* template functions start*/
 
 func add(a, b int) int {
 	return a + b
@@ -867,10 +829,20 @@ func lower(s string) string {
 
 /* template functions end */
 
-func paginator(r *http.Request) (int, int, int) {
+func newRenderFunc(tmpl *template.Template) renderFunc {
+	return func(name string, data any) ([]byte, error) {
+		var buf bytes.Buffer
+		if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+			return nil, fmt.Errorf("render error: %w", err)
+		}
+		return buf.Bytes(), nil
+	}
+}
+
+func paginator(r *http.Request, defaultLimit int) (int, int, int) {
 	q := r.URL.Query()
 
-	limit := 54
+	limit := defaultLimit
 	offset := 0
 	page := 1
 
@@ -1132,73 +1104,50 @@ func getHashtagByID(db *sql.DB, id int) (*Hashtag, error) {
 /* persona db funcs*/
 
 // get all
-func getAllPersonas(db *sql.DB) ([]*Persona, error) {
-	if db == nil {
-		return nil, errDBNil
+func getPersonas(limit, offset int) []Persona {
+	personas := []Persona{
+		{1, "Fiona", "", "https://replicate.delivery/pbxt/hHQ0aXYNnab3IRT39NsqDrgfJ4c3OfPeMz0Qe4MXPvj5NidMB/output_1.png"},
+		{2, "Emily", "", "https://replicate.delivery/pbxt/OrPxbF0Z9V78EhxVTXONM7msHZSKJgEIQGG9eXz3Vjw8YsjJA/output_1.png"},
+		{3, "Sarah", "", "https://replicate.delivery/pbxt/SNyHoT1Jla70GpYLNPgkMe2x1RJPyUaU4meT4fQHsiJO3wOmA/output_1.png"},
+		{4, "Aoife", "", "https://replicate.delivery/pbxt/7HKCIPYGhqqPEZ10YnjeuYeLRkkvOokRVIpHFC47lH7vSYHTA/output_1.png"},
+		{5, "Liz", "", "https://replicate.delivery/pbxt/asJWtatC9zKNL5qnZo5NPUs3bJfu8G4z6feGzBE9E49xgyOmA/output_1.png"},
+		{6, "Mia", "", "https://replicate.delivery/pbxt/40x0CWfDTUSaLqoZfyG5VX4ewSWp6XWRefQRUYt72AavKK7YC/output_1.png"},
+		{7, "Sinead", "", "https://replicate.delivery/pbxt/tAmmkAgi1exlWyWjxNgePDRBu9cnietW5y2h8dXkelKTHldMB/output_1.png"},
 	}
 
-	q := `SELECT id, name, description, profile_photo FROM models`
-	rows, err := db.Query(q)
-	if err != nil {
-		return nil, err
+	lenPersonas := len(personas)
+
+	if limit == 0 || limit > lenPersonas {
+		limit = lenPersonas
 	}
-	defer rows.Close()
-	var res []*Persona
-	for rows.Next() {
-		var p Persona
-		err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.ProfilePhoto)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, &p)
+
+	if offset > len(personas) {
+		offset = 0
 	}
-	return res, nil
+
+	res := []Persona{}
+	for i := offset; i < limit; i++ {
+		res = append(res, personas[i])
+	}
+
+	return res
 }
 
 // get one persona
-func getPersonaByID(db *sql.DB, id int) (*Persona, error) {
-	if db == nil {
-		return nil, errDBNil
+func getPersonaByID(id int) (Persona, error) {
+	for _, p := range getPersonas(0, 0) {
+		if p.ID == id {
+			return p, nil
+		}
 	}
-
-	if id < 1 {
-		return nil, fmt.Errorf("please supply a valid id")
-	}
-
-	return nil, fmt.Errorf("not yet implmented")
+	return Persona{}, fmt.Errorf("no persona with id %d", id)
 }
 
 // get one random persona
-func getRandomPersona(db *sql.DB) (*Persona, error) {
-	if db == nil {
-		return nil, errDBNil
-	}
-
-	q := `SELECT id, name, description, profile_photo FROM models ORDER BY RANDOM() LIMIT 1`
-	var p Persona
-	err := db.QueryRow(q).Scan(&p.ID, &p.Name, &p.Description, &p.ProfilePhoto)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving random persona. %w", err)
-	}
-	return &p, nil
-}
-
-// update one persona
-func updatePersona(db *sql.DB, p *Persona) error {
-	if db == nil {
-		return errDBNil
-	}
-
-	if p == nil {
-		return errors.New("persona passed to updatePersona is nil")
-	}
-
-	q := `UPDATE models SET name = ?, description = ?, profile_photo = ? WHERE id = ?`
-	_, err := db.Exec(q, p.Name, p.Description, p.ProfilePhoto, p.ID)
-	if err != nil {
-		return err
-	}
-	return nil
+func getRandomPersona() Persona {
+	personas := getPersonas(0, 0)
+	randomInt := rand.Intn(len(personas))
+	return personas[randomInt]
 }
 
 /* posthashtag db funcs*/
@@ -1239,7 +1188,7 @@ func initPostHashTagTable(db *sql.DB) error {
 	return nil
 }
 
-// TODO update these functions to addres websiteID column
+// TODO update these functions to addres website_id column
 func updatePost(db *sql.DB, p *Post) error {
 
 	if db == nil {
@@ -1254,8 +1203,8 @@ func updatePost(db *sql.DB, p *Post) error {
 		posts 
 	SET 
 		author_id = ?, 
-		srcURL = ?, 
-		websiteID = ?, 
+		src_url = ?, 
+		website_id = ?, 
 		description = ?, 
 		link = ? 
 	WHERE 
@@ -1290,13 +1239,13 @@ func getPosts(db *sql.DB, params getPostParams) ([]*Post, error) {
 
 	promos := []*Post{}
 
-	q := `SELECT id, websiteID, srcURL, author_id, description, timestamp FROM posts`
+	q := `SELECT id, website_id, src_url, author_id, description, timestamp FROM posts`
 
 	args := []any{}
 	if params.WebsiteID != 0 || len(params.IDs) > 0 {
 		subQ := []string{}
 		if params.WebsiteID != 0 {
-			subQ = append(subQ, "websiteID = ?")
+			subQ = append(subQ, "website_id = ?")
 			args = append(args, params.WebsiteID)
 		}
 
@@ -1352,13 +1301,13 @@ CREATE TABLE subscribers (
 /* website funcs*/
 
 // Retrieve a website by its ID from the Websites table
-func getWebsiteByID(websiteID int) (Website, error) {
+func getWebsiteByID(website_id int) (Website, error) {
 	for _, website := range getWebsites(0, 0) {
-		if website.WebsiteID == websiteID {
+		if website.WebsiteID == website_id {
 			return website, nil
 		}
 	}
-	return Website{}, fmt.Errorf("no website with id %d", websiteID)
+	return Website{}, fmt.Errorf("no website with id %d", website_id)
 }
 
 // Retrieve a website by its ID from the Websites table
@@ -1379,8 +1328,10 @@ func getWebsites(limit, offset int) []Website {
 		{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE"},
 	}
 
-	if limit == 0 {
-		limit = len(websites)
+	lenWebsites := len(websites)
+
+	if limit == 0 || limit > lenWebsites {
+		limit = lenWebsites
 	}
 
 	toReturn := []Website{}
