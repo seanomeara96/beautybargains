@@ -75,7 +75,7 @@ type Trending struct {
 	PostCount int
 }
 
-type handleFunc func(w http.ResponseWriter, r *http.Request) error
+type htmlHandleFunc func(w http.ResponseWriter, r *http.Request) ([]byte, error)
 
 type MenuItem struct {
 	Path string
@@ -229,11 +229,19 @@ func server(db *sql.DB) error {
 		http.ServeFile(w, r, "./static/sitemap.xml")
 	})
 
-	handle := func(path string, fn handleFunc) *mux.Route {
+	handle := func(path string, fn htmlHandleFunc) *mux.Route {
 		return r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			if err := fn(w, r); err != nil {
+			reportErr := func(err error) {
 				log.Printf("Error at %s %s => %v", r.Method, r.URL.Path, err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			bytes, err := fn(w, r)
+			if err != nil {
+				reportErr(err)
+				return
+			}
+			if _, err := w.Write(bytes); err != nil {
+				reportErr(err)
 			}
 		})
 	}
@@ -241,7 +249,7 @@ func server(db *sql.DB) error {
 	/*
 		Home / Index Handler
 	*/
-	handle("/", handleGetHomePage(db, tmpl))
+	handle("/", handleGetHomePage(tmpl))
 
 	/*
 		Promotions Handlers
@@ -253,10 +261,10 @@ func server(db *sql.DB) error {
 	handle("/feed/", handleGetFeed(db, tmpl)).Methods(http.MethodGet)
 	handle("/feed/{websiteName}/", handleGetFeed(db, tmpl)).Methods(http.MethodGet)
 
-	handle("/websites/", handleGetWebsites(db, tmpl)).Methods(http.MethodGet)
-	handle("/websites/{website_id}/", handleGetWebsiteByID(db, tmpl)).Methods(http.MethodGet)
+	handle("/websites/", handleGetWebsites(getWebsites, tmpl)).Methods(http.MethodGet)
+	handle("/websites/{website_id}/", handleGetWebsiteByID(getWebsiteByID, tmpl)).Methods(http.MethodGet)
 	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, tmpl)).Methods(http.MethodPost)
-	handle("/subscribe/", handleGetSubscribePage(db, tmpl)).Methods(http.MethodGet)
+	handle("/subscribe/", handleGetSubscribePage(tmpl)).Methods(http.MethodGet)
 	handle("/subscribe/verify", handleGetVerifySubscription(db, tmpl)).Methods(http.MethodGet)
 
 	log.Println("Server listening on http://localhost:" + port)
@@ -312,9 +320,6 @@ func processHashtags(db *sql.DB) error {
 				var count int
 				if err := db.QueryRow(q, p.ID, hashtagID).Scan(&count); err != nil {
 					return fmt.Errorf("could not count relationships between %d & %d. %v", p.ID, hashtagID, err)
-				}
-				if err != nil {
-					return err
 				}
 
 				noRelationShip := count < 1
@@ -416,18 +421,18 @@ func extractOffersFromBanners(db *sql.DB) error {
 }
 
 /* Handlers */
-func handleGetHomePage(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
-		err := tmpl.ExecuteTemplate(w, "home", map[string]any{"MenuItems": menuItems, "Request": r})
-		if err != nil {
-			return (err)
+func handleGetHomePage(tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+		var buf bytes.Buffer
+		if err := tmpl.ExecuteTemplate(&buf, "home", map[string]any{"MenuItems": menuItems, "Request": r}); err != nil {
+			return nil, err
 		}
-		return nil
+		return buf.Bytes(), nil
 	}
 }
 
-func handleGetPromotionsPage(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
+func handleGetPromotionsPage(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		vars := mux.Vars(r)
 		websiteName := vars["websiteName"]
 
@@ -444,25 +449,21 @@ func handleGetPromotionsPage(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		promos, err := getPosts(db, params)
 		if err != nil {
-			return fmt.Errorf("failed to get posts %w", err)
+			return nil, fmt.Errorf("failed to get posts %w", err)
 		}
 
 		var buf bytes.Buffer
 		err = tmpl.ExecuteTemplate(&buf, "promotionspage", map[string]any{"Promotions": promos, "MenuItems": menuItems, "Request": r})
 		if err != nil {
-			return fmt.Errorf("could not render template for promotions page %w", err)
+			return nil, fmt.Errorf("could not render template for promotions page %w", err)
 		}
 
-		if _, err := w.Write(buf.Bytes()); err != nil {
-			return fmt.Errorf("could not write promtion page bytes to response: %w", err)
-		}
-
-		return nil
+		return buf.Bytes(), nil
 	}
 }
 
-func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
+func handleGetFeed(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 
 		vars := mux.Vars(r)
 		websiteName := vars["websiteName"]
@@ -497,12 +498,12 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 		if params.Hashtag != "" {
 			hashtagID, err := getHashtagIDByPhrase(db, params.Hashtag)
 			if err != nil {
-				return fmt.Errorf("could not get hashtag id in get by phrase. %w", err)
+				return nil, fmt.Errorf("could not get hashtag id in get by phrase. %w", err)
 			}
 
 			postIdRows, err := db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
 			if err != nil {
-				return fmt.Errorf("error getting post_ids from post_hashtags db. %w", err)
+				return nil, fmt.Errorf("error getting post_ids from post_hashtags db. %w", err)
 			}
 			defer postIdRows.Close()
 
@@ -511,7 +512,7 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 				var id int
 				err := postIdRows.Scan(&id)
 				if err != nil {
-					return fmt.Errorf("error scanning post_id in getposts. %w", err)
+					return nil, fmt.Errorf("error scanning post_id in getposts. %w", err)
 				}
 				ids = append(ids, id)
 			}
@@ -524,12 +525,12 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 		getPostParams.WebsiteID = params.WebsiteID
 		promos, err := getPosts(db, getPostParams)
 		if err != nil {
-			return fmt.Errorf("error with postrepo GetAll func at postsvc.GetAll. %w", err)
+			return nil, fmt.Errorf("error with postrepo GetAll func at postsvc.GetAll. %w", err)
 		}
 
 		personas, err := getAllPersonas(db)
 		if err != nil {
-			return fmt.Errorf("could not get all personas feed page. %w", err)
+			return nil, fmt.Errorf("could not get all personas feed page. %w", err)
 		}
 
 		events := []Event{}
@@ -590,7 +591,7 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 			e.Content.ExtraText = &extraTextHTML
 			website, err := getWebsiteByID(promos[i].WebsiteID)
 			if err != nil {
-				return fmt.Errorf("could not get website by id %d. %v", promos[i].WebsiteID, err)
+				return nil, fmt.Errorf("could not get website by id %d. %v", promos[i].WebsiteID, err)
 			}
 			e.Content.Summary = fmt.Sprintf("posted an update about %s", website.WebsiteName)
 			e.Content.ExtraImages = nil
@@ -604,7 +605,7 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		rows, err := db.Query(q, limit)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer rows.Close()
 
@@ -612,7 +613,7 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 		for rows.Next() {
 			var row GetTopByPostCountResponse
 			if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
-				return err
+				return nil, err
 			}
 			top = append(top, row)
 		} // should expect an array like {hashtag, postcount}
@@ -621,7 +622,7 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 		for _, row := range top {
 			hashtag, err := getHashtagByID(db, row.HashtagID)
 			if err != nil {
-				return fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
+				return nil, fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
 			}
 			trendingHashtags = append(trendingHashtags, &Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
 		}
@@ -630,20 +631,16 @@ func handleGetFeed(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		data := map[string]any{"Events": events, "Websites": websites, "Trending": trendingHashtags, "Request": r, "MenuItems": menuItems}
 		if err := tmpl.ExecuteTemplate(&buf, "feedpage", data); err != nil {
-			return fmt.Errorf("problem rebdering the feedpage template")
+			return nil, fmt.Errorf("problem rendering the feedpage template")
 		}
 
-		_, err = w.Write(buf.Bytes())
-		if err != nil {
-			return err
-		}
-		return nil
+		return buf.Bytes(), nil
 	}
 
 }
 
-func handleGetWebsites(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
+func handleGetWebsites(getWebsites func(limit, offset int) []Website, tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		limit, offset, page := paginator(r)
 		websites := getWebsites(limit, offset)
 
@@ -653,16 +650,18 @@ func handleGetWebsites(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		pagination := Pagination{page, maxPages}
 
-		err := tmpl.ExecuteTemplate(w, "websites", map[string]any{"MenuItems": menuItems, "Request": r, "Websites": websites, "Pagination": pagination})
+		var buf bytes.Buffer
+		err := tmpl.ExecuteTemplate(&buf, "websites", map[string]any{"MenuItems": menuItems, "Request": r, "Websites": websites, "Pagination": pagination})
 		if err != nil {
-			return fmt.Errorf("error: %v", err)
+			return nil, fmt.Errorf("error: %v", err)
 		}
-		return nil
+
+		return buf.Bytes(), nil
 	}
 }
 
-func handleGetWebsiteByID(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
+func handleGetWebsiteByID(getWebsiteByID func(websiteID int) (Website, error), tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		vars := mux.Vars(r)
 
 		websiteID, err := strconv.Atoi(vars["website_id"])
@@ -672,35 +671,31 @@ func handleGetWebsiteByID(db *sql.DB, tmpl *template.Template) handleFunc {
 
 		website, err := getWebsiteByID(websiteID)
 		if err != nil {
-			return fmt.Errorf("error %v", err)
+			return nil, fmt.Errorf("error %v", err)
 		}
 
 		var buf bytes.Buffer
 		err = tmpl.ExecuteTemplate(&buf, "website", map[string]any{"MenuItems": menuItems, "Request": r, "Website": website})
 		if err != nil {
-			return fmt.Errorf("error %v", err)
+			return nil, fmt.Errorf("error %v", err)
 		}
 
-		if _, err := w.Write(buf.Bytes()); err != nil {
-			return err
-		}
-
-		return nil
+		return buf.Bytes(), nil
 	}
 }
 
-func handleGetBrands(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
+func handleGetBrands(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		limit, offset, page := paginator(r)
 
 		brands, err := getBrands(db, limit, offset)
 		if err != nil {
-			return fmt.Errorf("error getting brands => %v", err)
+			return nil, fmt.Errorf("error getting brands => %v", err)
 		}
 
 		brandCount, err := countAllBrands(db)
 		if err != nil {
-			return fmt.Errorf("error counting brands => %v", err)
+			return nil, fmt.Errorf("error counting brands => %v", err)
 		}
 
 		maxPages := int(math.Ceil(float64(brandCount) / float64(limit)))
@@ -710,21 +705,17 @@ func handleGetBrands(db *sql.DB, tmpl *template.Template) handleFunc {
 		var buf bytes.Buffer
 		err = tmpl.ExecuteTemplate(&buf, "brands", map[string]any{"MenuItems": menuItems, "Request": r, "Brands": brands, "Pagination": pagination})
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		if _, err := w.Write(buf.Bytes()); err != nil {
-			return err
-		}
-
-		return nil
+		return buf.Bytes(), nil
 	}
 }
 
-func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
+func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		if err := r.ParseForm(); err != nil {
-			return fmt.Errorf("could not parse form: %w", err)
+			return nil, fmt.Errorf("could not parse form: %w", err)
 		}
 
 		email := r.FormValue("email")
@@ -735,7 +726,7 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, t
 			q := `INSERT INTO subscribers(email, consent) VALUES (?, ?)`
 			_, err := db.Exec(q, email, 1)
 			if err != nil {
-				return fmt.Errorf("could not insert email into subscibers table => %w", err)
+				return nil, fmt.Errorf("could not insert email into subscibers table => %w", err)
 			}
 
 			// Calculate the required byte size based on the length of the token
@@ -747,7 +738,7 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, t
 			// Read random bytes from the crypto/rand package
 			_, err = rand.Read(randomBytes)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			// Encode the random bytes into a hexadecimal string
@@ -759,7 +750,7 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, t
 			setVerificationTokenQuery := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
 			_, err = db.Exec(setVerificationTokenQuery, token, email)
 			if err != nil {
-				return fmt.Errorf("could not add verification token to user by email => %w", err)
+				return nil, fmt.Errorf("could not add verification token to user by email => %w", err)
 			}
 
 			domain := "http://localhost:" + port
@@ -774,52 +765,53 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, t
 					return fmt.Errorf("failed to send verification token => %w", err)
 				}*/
 
-			err = tmpl.ExecuteTemplate(w, "subscriptionsuccess", nil)
-			if err != nil {
-				return fmt.Errorf("error: %v", err)
+			var buffer bytes.Buffer
+			if err = tmpl.ExecuteTemplate(&buffer, "subscriptionsuccess", nil); err != nil {
+				return nil, fmt.Errorf("could not render ubscription success template: %w", err)
 			}
-		}
 
-		err := tmpl.ExecuteTemplate(w, "subscriptionform", nil)
-		if err != nil {
-			return err
+			return buffer.Bytes(), nil
 		}
-		return nil
+		var buffer bytes.Buffer
+		if err := tmpl.ExecuteTemplate(&buffer, "subscriptionform", nil); err != nil {
+			return nil, err
+		}
+		return buffer.Bytes(), nil
 	}
 }
 
-func handleGetSubscribePage(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
-		return errors.New("not implemented")
+func handleGetSubscribePage(tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+		var buf bytes.Buffer
+		if err := tmpl.ExecuteTemplate(&buf, "subscribepage", map[string]any{"MenuItems": menuItems, "Request": r}); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
 	}
 }
 
-func handleGetVerifySubscription(db *sql.DB, tmpl *template.Template) handleFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
+func handleGetVerifySubscription(db *sql.DB, tmpl *template.Template) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		vars := r.URL.Query()
 		token := vars.Get("token")
 
 		if token == "" {
 			// ("Warning: subscription verification attempted with no token")
-			err := handleGetHomePage(db, tmpl)(w, r)
-			if err != nil {
-				return fmt.Errorf("problem calling handleHomePage from within handleVerifySubsription. %w", err)
-			}
+			return handleGetHomePage(tmpl)(w, r)
 		}
 
 		q := `UPDATE subscribers SET is_verified = 1 WHERE verification_token = ?`
 		_, err := db.Exec(q, token)
 		if err != nil {
-			return fmt.Errorf("could not verify subscription via verification token => %w", err)
+			return nil, fmt.Errorf("could not verify subscription via verification token => %w", err)
 		}
 
 		// subscription confirmed
-
-		err = tmpl.ExecuteTemplate(w, "subscriptionverification", map[string]any{"MenuItems": menuItems, "Request": r})
-		if err != nil {
-			return fmt.Errorf("error: could not render subscription verification page => %v", err)
+		var buffer bytes.Buffer
+		if err = tmpl.ExecuteTemplate(&buffer, "subscriptionverification", map[string]any{"MenuItems": menuItems, "Request": r}); err != nil {
+			return nil, fmt.Errorf("error: could not render subscription verification page => %v", err)
 		}
-		return nil
+		return buffer.Bytes(), nil
 	}
 }
 
