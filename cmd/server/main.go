@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-
+	crand "crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,7 +12,7 @@ import (
 	"html/template"
 	"log"
 	"math"
-	"math/rand"
+	mrand "math/rand"
 	"net/http"
 	"os"
 	"regexp"
@@ -34,6 +34,12 @@ const (
 	Dev  Mode = "dev"
 	Prod Mode = "prod"
 )
+
+type BannerData struct {
+	Src            string
+	SupportingText string
+	Href           string
+}
 
 // Website struct matching the Websites table
 type Website struct {
@@ -359,16 +365,16 @@ func extractOffersFromBanners(db *sql.DB) error {
 	websites := getWebsites(0, 0)
 
 	for _, website := range websites {
-		bannerURLs, err := extractWebsiteBannerURLs(website)
+		banners, err := extractWebsiteBannerURLs(website)
 		if err != nil {
 			continue
 		}
 
-		uniqueBanners := []string{}
-		for _, u := range bannerURLs {
+		uniqueBanners := []BannerData{}
+		for _, banner := range banners {
 
 			var bannerCount int
-			err := db.QueryRow(`SELECT count(id) FROM posts WHERE src_url = ?`, u).Scan(&bannerCount)
+			err := db.QueryRow(`SELECT count(id) FROM posts WHERE src_url = ?`, banner.Src).Scan(&bannerCount)
 			if err != nil {
 				return fmt.Errorf("error checking existance of banner %v", err)
 			}
@@ -379,17 +385,17 @@ func extractOffersFromBanners(db *sql.DB) error {
 				continue
 			}
 
-			uniqueBanners = append(uniqueBanners, u)
+			uniqueBanners = append(uniqueBanners, banner)
 
 		}
 
-		for _, url := range uniqueBanners {
+		for _, banner := range uniqueBanners {
 
-			if url == "" {
+			if banner.Src == "" {
 				continue
 			}
 
-			description, err := generateOfferDescription(website.WebsiteName, url)
+			description, err := generateOfferDescription(website.WebsiteName, banner)
 			if err != nil {
 				return fmt.Errorf(`error getting offer description from chatgpt: %v`, err)
 			}
@@ -401,7 +407,7 @@ func extractOffersFromBanners(db *sql.DB) error {
 
 			_, err = db.Exec(
 				"INSERT INTO posts(website_id, src_url, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
-				website.WebsiteID, url, authorID, description, time.Now())
+				website.WebsiteID, banner.Src, authorID, description, time.Now())
 			if err != nil {
 				return fmt.Errorf(`error saving banner promotion: %w`, err)
 			}
@@ -693,54 +699,52 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, r
 		email := r.FormValue("email")
 		consent := r.FormValue("consent")
 
-		if consent == "on" {
-
-			q := `INSERT INTO subscribers(email, consent) VALUES (?, ?)`
-			_, err := db.Exec(q, email, 1)
-			if err != nil {
-				return nil, fmt.Errorf("could not insert email into subscibers table => %w", err)
-			}
-
-			// Calculate the required byte size based on the length of the token
-			byteSize := 20 / 2 // Each byte is represented by 2 characters in hexadecimal encoding
-
-			// Create a byte slice to store the random bytes
-			randomBytes := make([]byte, byteSize)
-
-			// Read random bytes from the crypto/rand package
-			_, err = rand.Read(randomBytes)
-			if err != nil {
-				return nil, err
-			}
-
-			// Encode the random bytes into a hexadecimal string
-			token := fmt.Sprintf("%x", randomBytes)
-
-			// TODO move gernate token to service level
-			// TODO do one insert with both email and verification token
-
-			setVerificationTokenQuery := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
-			_, err = db.Exec(setVerificationTokenQuery, token, email)
-			if err != nil {
-				return nil, fmt.Errorf("could not add verification token to user by email => %w", err)
-			}
-
-			domain := "http://localhost:" + port
-			if mode == Prod {
-				domain = productionDomain
-			}
-
-			log.Printf("Verify subscription at %s/subscribe/verify?token=%s", domain, token)
-			/* TODO implement this in production. For now log to console
-			err = s.SendVerificationToken(email, token)
-				if err != nil {
-					return fmt.Errorf("failed to send verification token => %w", err)
-				}*/
-
-			return render("subscriptionsuccess", nil)
+		if consent != "on" {
+			// TODO maybe create an error state
+			return render("subscriptionform", nil)
 		}
 
-		return render("subscriptionform", nil)
+		q := `INSERT INTO subscribers(email, consent) VALUES (?, 1)`
+		if _, err := db.Exec(q, email); err != nil {
+			return nil, fmt.Errorf("could not insert email into subscibers table => %w", err)
+		}
+
+		// Calculate the required byte size based on the length of the token
+		byteSize := 20 / 2 // Each byte is represented by 2 characters in hexadecimal encoding
+
+		// Create a byte slice to store the random bytes
+		randomBytes := make([]byte, byteSize)
+
+		// Read random bytes from the crypto/rand package
+		if _, err := crand.Read(randomBytes); err != nil {
+			return nil, err
+		}
+
+		// Encode the random bytes into a hexadecimal string
+		token := fmt.Sprintf("%x", randomBytes)
+
+		// TODO move gernate token to service level
+		// TODO do one insert with both email and verification token
+
+		setVerificationTokenQuery := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
+		if _, err := db.Exec(setVerificationTokenQuery, token, email); err != nil {
+			return nil, fmt.Errorf("could not add verification token to user by email => %w", err)
+		}
+
+		domain := "http://localhost:" + port
+		if mode == Prod {
+			domain = productionDomain
+		}
+
+		log.Printf("Verify subscription at %s/subscribe/verify?token=%s", domain, token)
+		/* TODO implement this in production. For now log to console
+		err = s.SendVerificationToken(email, token)
+			if err != nil {
+				return fmt.Errorf("failed to send verification token => %w", err)
+			}*/
+
+		return render("subscriptionsuccess", nil)
+
 	}
 }
 
@@ -1141,7 +1145,7 @@ func getPersonaByID(id int) (Persona, error) {
 // get one random persona
 func getRandomPersona() Persona {
 	personas := getPersonas(0, 0)
-	randomInt := rand.Intn(len(personas))
+	randomInt := mrand.Intn(len(personas))
 	return personas[randomInt]
 }
 
@@ -1339,7 +1343,7 @@ func getWebsites(limit, offset int) []Website {
 /*
 For a known website, retreive the banner urls and supply them in a string slice
 */
-func extractWebsiteBannerURLs(website Website) ([]string, error) {
+func _extractWebsiteBannerURLs(website Website) ([]string, error) {
 	res, err := http.Get(website.URL)
 	if err != nil {
 		return []string{}, fmt.Errorf("error sending get request to extract banner urls %w", err)
@@ -1409,8 +1413,132 @@ func extractWebsiteBannerURLs(website Website) ([]string, error) {
 	return bannerURLs, nil
 }
 
+// to replace existing method. supports 'supporting text'
+// for websites like lookfantastic and cult beauty that have carousels with text not embedded in the image
+// can be passed to the llm for additional context
+func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
+	res, err := http.Get(website.URL)
+	if err != nil {
+		return nil, fmt.Errorf("error sending get request to extract banner urls %w", err)
+	}
+
+	defer res.Body.Close()
+
+	// Load the HTML document
+	doc, err := goquery.NewDocumentFromReader(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing document with go query %w", err)
+	}
+
+	re, err := regexp.Compile(`\s+`)
+	if err != nil {
+		return nil, err
+	}
+
+	bannerData := []BannerData{}
+
+	switch website.WebsiteID {
+	case 1:
+		// beautyfeatures
+		doc.Find(".som-carousel a").Each(func(i int, s *goquery.Selection) {
+			bf := BannerData{}
+
+			if text := s.Text(); text != "" {
+				text := re.ReplaceAllString(text, " ")
+
+				bf.SupportingText = text
+			}
+
+			if value, found := s.Attr("href"); found {
+				if strings.HasPrefix(value, "/") {
+					value = website.URL + value
+				}
+
+				bf.Href = value
+			}
+
+			// For each item found, get the title
+			if value, found := s.Find("img").Attr("src"); found {
+				if strings.HasPrefix(value, "/") {
+					value = website.URL + value
+				}
+
+				bf.Src = value
+			}
+
+			bannerData = append(bannerData, bf)
+		})
+	case 2:
+		// lookfantastic
+		doc.Find(".responsiveSlider_slideContainer").Each(func(i int, s *goquery.Selection) {
+			lf := BannerData{}
+			// logic goes here
+			if imgSrc, found := s.Find("img").Attr("src"); found {
+				if strings.HasPrefix(imgSrc, "/") {
+					imgSrc = website.URL + imgSrc
+				}
+
+				lf.Src = imgSrc
+			}
+
+			if text := strings.TrimSpace(s.Text()); text != "" {
+				text := re.ReplaceAllString(text, " ")
+
+				lf.SupportingText = text
+			}
+
+			if href, found := s.Find("a").Attr("href"); found {
+				if strings.HasPrefix(href, "/") {
+					href = website.URL + href
+				}
+
+				lf.Href = href
+			}
+
+			bannerData = append(bannerData, lf)
+		})
+	case 3:
+		// millies
+		doc.Find(".homepage-slider-parent .swiper-wrapper img").Each(func(i int, s *goquery.Selection) {
+			millies := BannerData{}
+			// For each item found, get the title
+			if value, found := s.Attr("data-src"); found {
+				value = strings.ReplaceAll(value, "{width}", "800")
+
+				if strings.HasPrefix(value, "//") {
+					value = "https:" + value
+				}
+
+				millies.Src = value
+			}
+			bannerData = append(bannerData, millies)
+		})
+	case 4:
+		// mcCauleys
+		doc.Find("[data-content-type=slide] [data-background-images]").Each(func(i int, s *goquery.Selection) {
+			mc := BannerData{}
+			if value, found := s.Attr("data-background-images"); found {
+				var result = map[string]any{}
+				value = strings.ReplaceAll(value, "\\\"", "\"")
+				if err := json.Unmarshal([]byte(value), &result); err != nil {
+					return
+				}
+				// Extract the mobile_image value
+				if mobileImage, ok := result["mobile_image"].(string); ok {
+					mc.Src = mobileImage
+				}
+			}
+			bannerData = append(bannerData, mc)
+		})
+	default:
+		return nil, fmt.Errorf("could not find banner extraction rules for website %s", website.WebsiteName)
+	}
+
+	return bannerData, nil
+}
+
 /* chat service begins */
-func generateOfferDescription(websiteName, imageURL string) (string, error) {
+func generateOfferDescription(websiteName string, banner BannerData) (string, error) {
 	key := os.Getenv("OPENAI_API_KEY")
 	if key == "" {
 		return "", errors.New("OPENAI_API_KEY env var not set")
@@ -1418,25 +1546,36 @@ func generateOfferDescription(websiteName, imageURL string) (string, error) {
 
 	c := openai.NewClient(key)
 
-	command := fmt.Sprintf("You are a joyful and excited social media manager for a health and beauty magazine with the goal of motivating people to take advantage of today's available beauty offers. Tell your audience what the beauty retailer %s is advertising today and highlight any coupons if available. Keep your response short, playful and suitable for a tweet or instagram caption.", websiteName)
 	model := openai.GPT4VisionPreview
+
+	content := []openai.ChatMessagePart{
+		{
+			Type: "text",
+			Text: fmt.Sprintf(`You are a joyful and excited social media manager for a health and beauty magazine with the goal of motivating people to take advantage of today's available beauty offers. 
+			Tell your audience what the beauty retailer %s is advertising today and highlight any coupons if available. Keep your response short, playful and suitable for a tweet or instagram caption. 
+			Do not acknowledge that you are AI.`, websiteName),
+		},
+	}
+
+	if banner.SupportingText != "" {
+		content = append(content, openai.ChatMessagePart{
+			Type: "text",
+			Text: fmt.Sprintf("For some additional context regarding this promotion please see the quoted text '%s'", banner.SupportingText),
+		})
+	}
+
+	content = append(content, openai.ChatMessagePart{
+		Type:     "image_url",
+		ImageURL: &openai.ChatMessageImageURL{URL: banner.Src},
+	})
 
 	res, err := c.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 		Model:     model,
 		MaxTokens: 1000,
 		Messages: []openai.ChatCompletionMessage{
 			{
-				Role: "user",
-				MultiContent: []openai.ChatMessagePart{
-					{
-						Type: "text",
-						Text: command,
-					},
-					{
-						Type:     "image_url",
-						ImageURL: &openai.ChatMessageImageURL{URL: imageURL},
-					},
-				},
+				Role:         "user",
+				MultiContent: content,
 			},
 		},
 	})
