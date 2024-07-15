@@ -82,8 +82,9 @@ type Trending struct {
 	PostCount int
 }
 
-type renderFunc func(name string, data any) ([]byte, error)
-type htmlHandleFunc func(w http.ResponseWriter, r *http.Request) ([]byte, error)
+type renderFunc func(name string, data any) (*[]byte, error)
+type renderPageFunc func(r *http.Request, name string, data map[string]any) (*[]byte, error)
+type htmlHandleFunc func(w http.ResponseWriter, r *http.Request) (*[]byte, error)
 
 type MenuItem struct {
 	Path string
@@ -253,34 +254,35 @@ func server(db *sql.DB) error {
 				return
 			}
 
-			if _, err := w.Write(bytes); err != nil {
+			if _, err := w.Write(*bytes); err != nil {
 				reportErr(err)
 			}
 
 		})
 	}
 
-	render := newRenderFunc(tmpl)
+	renderFunc := newRenderFunc(tmpl)
+	renderPage := newRenderPageFunc(renderFunc, mode)
 
 	/*
 		Home / Index Handler
 	*/
-	handle("/", handleGetHomePage(render))
+	handle("/", handleGetHomePage(renderPage))
 
 	/*
 		Promotions Handlers
 	*/
-	handle("/promotions/", handleGetPromotionsPage(db, render)).Methods(http.MethodGet)
-	handle("/team/", handleGetTeamPage(getPersonas, render)).Methods(http.MethodGet)
-	handle("/promotions/{websiteName}", handleGetPromotionsPage(db, render)).Methods(http.MethodGet)
-	handle("/{websiteName}/promotions/", handleGetPromotionsPage(db, render)).Methods(http.MethodGet)
-	handle("/feed/", handleGetFeed(db, render)).Methods(http.MethodGet)
-	handle("/feed/{websiteName}/", handleGetFeed(db, render)).Methods(http.MethodGet)
-	handle("/websites/", handleGetWebsites(getWebsites, render)).Methods(http.MethodGet)
-	handle("/websites/{website_id}/", handleGetWebsiteByID(getWebsiteByID, render)).Methods(http.MethodGet)
-	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, render)).Methods(http.MethodPost)
-	handle("/subscribe/", handleGetSubscribePage(render)).Methods(http.MethodGet)
-	handle("/subscribe/verify", handleGetVerifySubscription(db, render)).Methods(http.MethodGet)
+	handle("/promotions/", handleGetPromotionsPage(db, renderPage)).Methods(http.MethodGet)
+	handle("/team/", handleGetTeamPage(getPersonas, renderPage)).Methods(http.MethodGet)
+	handle("/promotions/{websiteName}", handleGetPromotionsPage(db, renderPage)).Methods(http.MethodGet)
+	handle("/{websiteName}/promotions/", handleGetPromotionsPage(db, renderPage)).Methods(http.MethodGet)
+	handle("/feed/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
+	handle("/feed/{websiteName}/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
+	handle("/websites/", handleGetWebsites(getWebsites, renderPage)).Methods(http.MethodGet)
+	handle("/websites/{website_id}/", handleGetWebsiteByID(getWebsiteByID, renderPage)).Methods(http.MethodGet)
+	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, renderPage)).Methods(http.MethodPost)
+	handle("/subscribe/", handleGetSubscribePage(renderPage)).Methods(http.MethodGet)
+	handle("/subscribe/verify", handleGetVerifySubscription(db, renderPage)).Methods(http.MethodGet)
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err = http.ListenAndServe(":"+port, r); err != nil {
@@ -422,20 +424,20 @@ func extractOffersFromBanners(db *sql.DB) error {
 }
 
 /* Handlers */
-func handleGetHomePage(render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-		return render("home", map[string]any{"MenuItems": menuItems, "Request": r})
+func handleGetHomePage(render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
+		return render(r, "home", map[string]any{})
 	}
 }
 
-func handleGetTeamPage(getPersonas func(a, b int) []Persona, render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-		return render("teampage", map[string]any{"MenuItems": menuItems, "Request": r, "Team": getPersonas(0, 0)})
+func handleGetTeamPage(getPersonas func(a, b int) []Persona, render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
+		return render(r, "teampage", map[string]any{"Team": getPersonas(0, 0)})
 	}
 }
 
-func handleGetPromotionsPage(db *sql.DB, render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func handleGetPromotionsPage(db *sql.DB, render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		vars := mux.Vars(r)
 		websiteName := vars["websiteName"]
 
@@ -455,12 +457,12 @@ func handleGetPromotionsPage(db *sql.DB, render renderFunc) htmlHandleFunc {
 			return nil, fmt.Errorf("failed to get posts %w", err)
 		}
 
-		return render("promotionspage", map[string]any{"Promotions": promos, "MenuItems": menuItems, "Request": r})
+		return render(r, "promotionspage", map[string]any{"Promotions": promos})
 	}
 }
 
-func handleGetFeed(db *sql.DB, render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func handleGetFeed(db *sql.DB, render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		websiteName := mux.Vars(r)["websiteName"]
 		hashtagQuery := r.URL.Query().Get("hashtag")
 
@@ -616,20 +618,18 @@ func handleGetFeed(db *sql.DB, render renderFunc) htmlHandleFunc {
 		}
 
 		data := map[string]any{
-			"Events":    events,
-			"Websites":  getWebsites(0, 0),
-			"Trending":  trendingHashtags,
-			"Request":   r,
-			"MenuItems": menuItems,
+			"Events":   events,
+			"Websites": getWebsites(0, 0),
+			"Trending": trendingHashtags,
 		}
 
-		return render("feedpage", data)
+		return render(r, "feedpage", data)
 	}
 
 }
 
-func handleGetWebsites(getWebsites func(limit, offset int) []Website, render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func handleGetWebsites(getWebsites func(limit, offset int) []Website, render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		limit, offset, page := paginator(r, 50)
 		websites := getWebsites(limit, offset)
 
@@ -639,12 +639,12 @@ func handleGetWebsites(getWebsites func(limit, offset int) []Website, render ren
 
 		pagination := Pagination{page, maxPages}
 
-		return render("websites", map[string]any{"MenuItems": menuItems, "Request": r, "Websites": websites, "Pagination": pagination})
+		return render(r, "websites", map[string]any{"Websites": websites, "Pagination": pagination})
 	}
 }
 
-func handleGetWebsiteByID(getWebsiteByID func(website_id int) (Website, error), render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func handleGetWebsiteByID(getWebsiteByID func(website_id int) (Website, error), render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		vars := mux.Vars(r)
 
 		website_id, err := strconv.Atoi(vars["website_id"])
@@ -657,12 +657,12 @@ func handleGetWebsiteByID(getWebsiteByID func(website_id int) (Website, error), 
 			return nil, fmt.Errorf("error %v", err)
 		}
 
-		return render("website", map[string]any{"MenuItems": menuItems, "Request": r, "Website": website})
+		return render(r, "website", map[string]any{"Website": website})
 	}
 }
 
-func handleGetBrands(db *sql.DB, render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func handleGetBrands(db *sql.DB, render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		limit, offset, page := paginator(r, 50)
 
 		brands, err := getBrands(db, limit, offset)
@@ -686,12 +686,12 @@ func handleGetBrands(db *sql.DB, render renderFunc) htmlHandleFunc {
 			"Pagination": pagination,
 		}
 
-		return render("brands", data)
+		return render(r, "brands", data)
 	}
 }
 
-func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		if err := r.ParseForm(); err != nil {
 			return nil, fmt.Errorf("could not parse form: %w", err)
 		}
@@ -701,7 +701,7 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, r
 
 		if consent != "on" {
 			// TODO maybe create an error state
-			return render("subscriptionform", nil)
+			return render(r, "subscriptionform", nil)
 		}
 
 		q := `INSERT INTO subscribers(email, consent) VALUES (?, 1)`
@@ -743,19 +743,19 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, r
 				return fmt.Errorf("failed to send verification token => %w", err)
 			}*/
 
-		return render("subscriptionsuccess", nil)
+		return render(r, "subscriptionsuccess", nil)
 
 	}
 }
 
-func handleGetSubscribePage(render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-		return render("subscribepage", map[string]any{"MenuItems": menuItems, "Request": r})
+func handleGetSubscribePage(render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
+		return render(r, "subscribepage", map[string]any{})
 	}
 }
 
-func handleGetVerifySubscription(db *sql.DB, render renderFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func handleGetVerifySubscription(db *sql.DB, render renderPageFunc) htmlHandleFunc {
+	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		vars := r.URL.Query()
 		token := vars.Get("token")
 
@@ -772,7 +772,7 @@ func handleGetVerifySubscription(db *sql.DB, render renderFunc) htmlHandleFunc {
 
 		// subscription confirmed
 
-		return render("subscriptionverification", map[string]any{"MenuItems": menuItems, "Request": r})
+		return render(r, "subscriptionverification", map[string]any{})
 	}
 }
 
@@ -828,13 +828,30 @@ func lower(s string) string {
 
 /* template functions end */
 
+func newRenderPageFunc(render renderFunc, mode Mode) renderPageFunc {
+	return func(r *http.Request, name string, data map[string]any) (*[]byte, error) {
+		templateData := map[string]any{
+			"MenutItems": menuItems,
+			"Request":    r,
+			"Env":        mode,
+		}
+		if data != nil {
+			for k, v := range data {
+				templateData[k] = v
+			}
+		}
+		return render(name, templateData)
+	}
+}
+
 func newRenderFunc(tmpl *template.Template) renderFunc {
-	return func(name string, data any) ([]byte, error) {
+	return func(name string, data any) (*[]byte, error) {
 		var buf bytes.Buffer
 		if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
 			return nil, fmt.Errorf("render error: %w", err)
 		}
-		return buf.Bytes(), nil
+		bytes := buf.Bytes()
+		return &bytes, nil
 	}
 }
 

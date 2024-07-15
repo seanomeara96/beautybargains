@@ -18,7 +18,7 @@
             {{ if .Content.ExtraImages }}
                 <div id="extra-images" class="mt-2 bg-transparent p-0 text-black flex gap-4">
                     {{ range .Content.ExtraImages }}
-                        <a><img class="w-40" src="{{ .Src }}" alt="{{ .Alt }}"></a>
+                        <a><img class="w-full" src="{{ .Src }}" alt="{{ .Alt }}"></a>
                     {{ end }}                    
                 </div>
             {{ end }}

@@ -1,6 +1,8 @@
 {{ define "footer" }}
     <script type="module" src="/assets/index.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    {{ if eq .Env "dev" }}
+      <script src="https://cdn.tailwindcss.com"></script>
+    {{ end }}
   </body>
 </html>
 
