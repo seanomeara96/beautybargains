@@ -1333,6 +1333,10 @@ func getWebsites(limit, offset int) []Website {
 		limit = lenWebsites
 	}
 
+	if offset >= lenWebsites {
+		offset = 0
+	}
+
 	toReturn := []Website{}
 	for i := offset; i < limit; i++ {
 		toReturn = append(toReturn, websites[i])

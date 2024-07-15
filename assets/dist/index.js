@@ -26,7 +26,7 @@ eval("var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPAC
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
-eval("__webpack_require__.r(__webpack_exports__);\n/* harmony import */ var _htmx_min_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./htmx.min.js */ \"./assets/src/htmx.min.js\");\n/* harmony import */ var _htmx_min_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_htmx_min_js__WEBPACK_IMPORTED_MODULE_0__);\n\nif (window.location.pathname.includes(\"products/\")) {\n    Promise.all(/*! import() */[__webpack_require__.e(\"vendors-node_modules_chart_js_auto_auto_js\"), __webpack_require__.e(\"assets_src_timeline_js\")]).then(__webpack_require__.bind(__webpack_require__, /*! ./timeline.js */ \"./assets/src/timeline.js\")).then(res => {\n        res.timeline()\n    }).catch(console.log)\n}\n\nif(document.querySelector(\"#brand-description\")){\n    const container = document.getElementById(\"brand-description\");\n    container.style.overflow = \"hidden\"\n    const button = document.getElementById(\"brand-description-read-more\")\n    let isOpen = false\n    button.addEventListener(\"click\", (e) => {\n        e.preventDefault()\n        container.classList.toggle(\"brand-description--is-faded\")\n        isOpen = !isOpen\n        if(isOpen) {\n            button.textContent = \"Read Less\"\n        } else {\n            button.textContent = \"Read More\"\n        }\n    })\n\n}\n\n\n\n//# sourceURL=webpack://beautybargains/./assets/src/index.js?");
+eval("__webpack_require__.r(__webpack_exports__);\n/* harmony import */ var _htmx_min_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./htmx.min.js */ \"./assets/src/htmx.min.js\");\n/* harmony import */ var _htmx_min_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_htmx_min_js__WEBPACK_IMPORTED_MODULE_0__);\n\r\nif (window.location.pathname.includes(\"products/\")) {\r\n    Promise.all(/*! import() */[__webpack_require__.e(\"vendors-node_modules_chart_js_auto_auto_js\"), __webpack_require__.e(\"assets_src_timeline_js\")]).then(__webpack_require__.bind(__webpack_require__, /*! ./timeline.js */ \"./assets/src/timeline.js\")).then(res => {\r\n        res.timeline()\r\n    }).catch(console.log)\r\n}\r\n\r\nif(document.querySelector(\"#brand-description\")){\r\n    const container = document.getElementById(\"brand-description\");\r\n    container.style.overflow = \"hidden\"\r\n    const button = document.getElementById(\"brand-description-read-more\")\r\n    let isOpen = false\r\n    button.addEventListener(\"click\", (e) => {\r\n        e.preventDefault()\r\n        container.classList.toggle(\"brand-description--is-faded\")\r\n        isOpen = !isOpen\r\n        if(isOpen) {\r\n            button.textContent = \"Read Less\"\r\n        } else {\r\n            button.textContent = \"Read More\"\r\n        }\r\n    })\r\n\r\n}\r\n\r\n\n\n//# sourceURL=webpack://beautybargains/./assets/src/index.js?");
 
 /***/ })
 
@@ -192,7 +192,7 @@ eval("__webpack_require__.r(__webpack_exports__);\n/* harmony import */ var _htm
 /******/ 				var scripts = document.getElementsByTagName("script");
 /******/ 				if(scripts.length) {
 /******/ 					var i = scripts.length - 1;
-/******/ 					while (i > -1 && !scriptUrl) scriptUrl = scripts[i--].src;
+/******/ 					while (i > -1 && (!scriptUrl || !/^http(s?):/.test(scriptUrl))) scriptUrl = scripts[i--].src;
 /******/ 				}
 /******/ 			}
 /******/ 		}
