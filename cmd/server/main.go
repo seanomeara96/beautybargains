@@ -47,12 +47,14 @@ type Website struct {
 	WebsiteName string `json:"website_name"`
 	URL         string `json:"url"`
 	Country     string `json:"country"`
+	Score       float64
 }
 
 type Brand struct {
-	ID   int
-	Name string
-	Path string
+	ID    int
+	Name  string
+	Path  string
+	Score float64
 }
 
 type Post struct {
@@ -63,6 +65,7 @@ type Post struct {
 	Link        string
 	Timestamp   time.Time
 	AuthorID    int // supposed to correspond with a persona id
+	Score       float64
 }
 
 type Hashtag struct {
@@ -243,7 +246,7 @@ func server(db *sql.DB) error {
 		return r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 
 			reportErr := func(err error) {
-				err = fmt.Errorf("Error at %s %s => %v", r.Method, r.URL.Path, err)
+				err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
 				log.Print(err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
@@ -1338,10 +1341,10 @@ func getWebsiteByName(websiteName string) (Website, error) {
 
 func getWebsites(limit, offset int) []Website {
 	websites := []Website{
-		{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE"},
-		{2, "LookFantastic", "https://lookfantastic.ie", "IE"},
-		{3, "Millies", "https://millies.ie", "IE"},
-		{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE"},
+		{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 10},
+		{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8},
+		{3, "Millies", "https://millies.ie", "IE", 9},
+		{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 3},
 	}
 
 	lenWebsites := len(websites)
