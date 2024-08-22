@@ -11,12 +11,10 @@ import (
 	"fmt"
 	"html/template"
 	"log"
-	"math"
 	mrand "math/rand"
 	"net/http"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -147,13 +145,9 @@ type Event struct {
 	Meta    EventMeta
 }
 
-/* models end */
+var mode Mode
 
-var menuItems = []MenuItem{
-	{"/", "Home"},
-	{"/promotions/", "Promotions"},
-	{"/websites/", "Websites"},
-}
+/* models end */
 
 func main() {
 
@@ -181,6 +175,27 @@ func main() {
 
 }
 
+var _tmpl *template.Template
+
+func tmpl() *template.Template {
+	if mode == Prod && _tmpl != nil {
+		return _tmpl
+	}
+	funcMap := template.FuncMap{
+		"longDate":            formatLongDate,
+		"placeholderImage":    placeholderImage,
+		"truncateDescription": truncateDescription,
+		"proper":              proper,
+		"unescape":            unescape,
+		"isCurrentPage":       isCurrentPage,
+		"add":                 add,
+		"subtract":            subtract,
+		"lower":               lower,
+	}
+	_tmpl = template.Must(template.New("web").Funcs(funcMap).ParseGlob("templates/**/*.tmpl"))
+	return _tmpl
+}
+
 func server(db *sql.DB) error {
 	_port := flag.String("port", "", "http port")
 	_mode := flag.String("mode", "", "deployment mode")
@@ -188,7 +203,7 @@ func server(db *sql.DB) error {
 	flag.Parse()
 
 	port := *_port
-	mode := Mode(*_mode)
+	mode = Mode(*_mode)
 
 	if port == "" {
 		return fmt.Errorf("port is required via -port flag")
@@ -202,23 +217,6 @@ func server(db *sql.DB) error {
 	productionDomain := os.Getenv("PROD_DOMAIN")
 	if mode == Prod && productionDomain == "" {
 		return errors.New("must supply production domain to run server in prod")
-	}
-
-	funcMap := template.FuncMap{
-		"longDate":            formatLongDate,
-		"placeholderImage":    placeholderImage,
-		"truncateDescription": truncateDescription,
-		"proper":              proper,
-		"unescape":            unescape,
-		"isCurrentPage":       isCurrentPage,
-		"add":                 add,
-		"subtract":            subtract,
-		"lower":               lower,
-	}
-
-	tmpl, err := template.New("web").Funcs(funcMap).ParseGlob("web/templates/**/*.tmpl")
-	if err != nil {
-		return fmt.Errorf("error parsing templates. %v", err)
 	}
 
 	r := mux.NewRouter()
@@ -270,25 +268,18 @@ func server(db *sql.DB) error {
 	/*
 		Home / Index Handler
 	*/
-	handle("/", handleGetHomePage(renderPage))
+	handle("/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
+	handle("/{websiteName}/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
 
 	/*
 		Promotions Handlers
 	*/
-	handle("/promotions/", handleGetPromotionsPage(db, renderPage)).Methods(http.MethodGet)
-	handle("/team/", handleGetTeamPage(getPersonas, renderPage)).Methods(http.MethodGet)
-	handle("/promotions/{websiteName}", handleGetPromotionsPage(db, renderPage)).Methods(http.MethodGet)
-	handle("/{websiteName}/promotions/", handleGetPromotionsPage(db, renderPage)).Methods(http.MethodGet)
-	handle("/feed/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
-	handle("/feed/{websiteName}/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
-	handle("/websites/", handleGetWebsites(getWebsites, renderPage)).Methods(http.MethodGet)
-	handle("/websites/{website_id}/", handleGetWebsiteByID(getWebsiteByID, renderPage)).Methods(http.MethodGet)
 	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, renderPage)).Methods(http.MethodPost)
 	handle("/subscribe/", handleGetSubscribePage(renderPage)).Methods(http.MethodGet)
 	handle("/subscribe/verify", handleGetVerifySubscription(db, renderPage)).Methods(http.MethodGet)
 
 	log.Println("Server listening on http://localhost:" + port)
-	if err = http.ListenAndServe(":"+port, r); err != nil {
+	if err := http.ListenAndServe(":"+port, r); err != nil {
 		return fmt.Errorf("failure to launch. %w", err)
 	}
 	return nil
@@ -430,37 +421,6 @@ func extractOffersFromBanners(db *sql.DB) error {
 func handleGetHomePage(render renderPageFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		return render(r, "home", map[string]any{})
-	}
-}
-
-func handleGetTeamPage(getPersonas func(a, b int) []Persona, render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		return render(r, "teampage", map[string]any{"Team": getPersonas(0, 0)})
-	}
-}
-
-func handleGetPromotionsPage(db *sql.DB, render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		vars := mux.Vars(r)
-		websiteName := vars["websiteName"]
-
-		params := getPostParams{
-			SortByTimestampDesc: true,
-		}
-
-		if websiteName != "" {
-			website, err := getWebsiteByName(websiteName)
-			if err == nil {
-				params.WebsiteID = website.WebsiteID
-			}
-		}
-
-		promos, err := getPosts(db, params)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get posts %w", err)
-		}
-
-		return render(r, "promotionspage", map[string]any{"Promotions": promos})
 	}
 }
 
@@ -631,68 +591,6 @@ func handleGetFeed(db *sql.DB, render renderPageFunc) htmlHandleFunc {
 
 }
 
-func handleGetWebsites(getWebsites func(limit, offset int) []Website, render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		limit, offset, page := paginator(r, 50)
-		websites := getWebsites(limit, offset)
-
-		count := len(getWebsites(0, 0))
-
-		maxPages := int(math.Ceil(float64(count) / float64(limit)))
-
-		pagination := Pagination{page, maxPages}
-
-		return render(r, "websites", map[string]any{"Websites": websites, "Pagination": pagination})
-	}
-}
-
-func handleGetWebsiteByID(getWebsiteByID func(website_id int) (Website, error), render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		vars := mux.Vars(r)
-
-		website_id, err := strconv.Atoi(vars["website_id"])
-		if err != nil {
-			website_id = 1
-		}
-
-		website, err := getWebsiteByID(website_id)
-		if err != nil {
-			return nil, fmt.Errorf("error %v", err)
-		}
-
-		return render(r, "website", map[string]any{"Website": website})
-	}
-}
-
-func handleGetBrands(db *sql.DB, render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		limit, offset, page := paginator(r, 50)
-
-		brands, err := getBrands(db, limit, offset)
-		if err != nil {
-			return nil, err
-		}
-
-		brandCount, err := countAllBrands(db)
-		if err != nil {
-			return nil, err
-		}
-
-		maxPages := int(math.Ceil(float64(brandCount) / float64(limit)))
-
-		pagination := Pagination{page, maxPages}
-
-		data := map[string]any{
-			"MenuItems":  menuItems,
-			"Request":    r,
-			"Brands":     brands,
-			"Pagination": pagination,
-		}
-
-		return render(r, "brands", data)
-	}
-}
-
 func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, render renderPageFunc) htmlHandleFunc {
 	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
 		if err := r.ParseForm(); err != nil {
@@ -704,7 +602,7 @@ func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, r
 
 		if consent != "on" {
 			// TODO maybe create an error state
-			return render(r, "subscriptionform", nil)
+			return render(r, "subscriptionform", map[string]any{"ConsentErr": "Please consent so we can add you to our mailing list. Thanks!"})
 		}
 
 		q := `INSERT INTO subscribers(email, consent) VALUES (?, 1)`
@@ -809,6 +707,7 @@ func truncateDescription(description string) string {
 	return string(description[0:100] + "...")
 }
 
+// s must come from trusted source
 func unescape(s string) template.HTML {
 	return template.HTML(s)
 }
@@ -834,23 +733,22 @@ func lower(s string) string {
 func newRenderPageFunc(render renderFunc, mode Mode) renderPageFunc {
 	return func(r *http.Request, name string, data map[string]any) (*[]byte, error) {
 		templateData := map[string]any{
-			"MenutItems": menuItems,
-			"Request":    r,
-			"Env":        mode,
+			"Request": r,
+			"Env":     mode,
 		}
-		if data != nil {
-			for k, v := range data {
-				templateData[k] = v
-			}
+
+		for k, v := range data {
+			templateData[k] = v
 		}
+
 		return render(name, templateData)
 	}
 }
 
-func newRenderFunc(tmpl *template.Template) renderFunc {
+func newRenderFunc(tmpl func() *template.Template) renderFunc {
 	return func(name string, data any) (*[]byte, error) {
 		var buf bytes.Buffer
-		if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		if err := tmpl().ExecuteTemplate(&buf, name, data); err != nil {
 			return nil, fmt.Errorf("render error: %w", err)
 		}
 		bytes := buf.Bytes()
@@ -858,203 +756,9 @@ func newRenderFunc(tmpl *template.Template) renderFunc {
 	}
 }
 
-func paginator(r *http.Request, defaultLimit int) (int, int, int) {
-	q := r.URL.Query()
-
-	limit := defaultLimit
-	offset := 0
-	page := 1
-
-	_limit := q.Get("limit")
-	if _limit != "" {
-		l, err := strconv.Atoi(_limit)
-		if err != nil {
-			log.Printf("error parsing limit from %s, %v", r.URL.String(), err)
-		} else {
-			limit = l
-		}
-	}
-
-	_offset := q.Get("offset")
-	if _offset != "" {
-		o, err := strconv.Atoi(_offset)
-		if err != nil {
-			log.Printf("error parsing offset from %s, %v", r.URL.String(), err)
-		} else {
-			offset = o
-		}
-	}
-
-	_page := q.Get("page")
-	if _page != "" {
-		p, err := strconv.Atoi(_page)
-		if err != nil {
-			log.Printf("error parsing page from %s, %v", r.URL.String(), err)
-		} else {
-			page = p
-			offset = (limit * (p - 1))
-		}
-	}
-
-	return limit, offset, page
-}
-
 /* db funcs */
 
 var errDBNil = errors.New("db is nil")
-
-/* Brand DB Funcs */
-func getBrandByID(db *sql.DB, id int) (*Brand, error) {
-	if db == nil {
-		return nil, errDBNil
-	}
-	q := `SELECT id, name, path FROM brands WHERE id = ?`
-	var brand Brand
-	err := db.QueryRow(q, id).Scan(&brand.ID, &brand.Name, &brand.Path)
-	if err != nil {
-		return nil, err
-	}
-	return &brand, nil
-}
-
-func getBrands(db *sql.DB, limit, offset int) ([]*Brand, error) {
-	if db == nil {
-		return nil, errDBNil
-	}
-
-	q := `SELECT id, name, path FROM brands ORDER BY name ASC LIMIT ? OFFSET ?`
-
-	rows, err := db.Query(q, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("could not get brands from db %v", err)
-	}
-	defer rows.Close()
-
-	brands := []*Brand{}
-	for rows.Next() {
-		var brand Brand
-		err = rows.Scan(&brand.ID, &brand.Name, &brand.Path)
-		if err != nil {
-			return nil, err
-		}
-		brands = append(brands, &brand)
-	}
-
-	return brands, nil
-
-}
-
-func countAllBrands(db *sql.DB) (int, error) {
-	if db == nil {
-		return -1, errDBNil
-	}
-
-	q := `SELECT count(id) as brand_count FROM Brands`
-	var count int
-	err := db.QueryRow(q).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("could not count brands => %w", err)
-	}
-	return count, nil
-}
-
-func insertBrand(db *sql.DB, brand *Brand) (int, error) {
-	if db == nil {
-		return -1, errDBNil
-	}
-
-	if brand == nil {
-		return -1, errors.New("brand passed to insert brand is nil")
-	}
-	q := `INSERT INTO brands(name, path) VALUES (?, ?)`
-	res, err := db.Exec(q, brand.Name, brand.Path)
-	if err != nil {
-		return 0, err
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, err
-	}
-	return int(id), nil
-}
-
-func countBrandsByName(db *sql.DB, brandName string) (int, error) {
-	if db == nil {
-		return -1, errDBNil
-	}
-
-	q := `SELECT count(id) FROM Brands WHERE name = ?`
-	var count int
-	err := db.QueryRow(q, brandName).Scan(&count)
-	if err != nil {
-		return -1, err
-	}
-	return count, nil
-}
-
-func getBrandByName(db *sql.DB, brandName string) (*Brand, error) {
-	if db == nil {
-		return nil, errDBNil
-	}
-
-	q := `SELECT id, name, path FROM brands WHERE name = ?`
-	var brand Brand
-	err := db.QueryRow(q, brandName).Scan(&brand.ID, &brand.Name, &brand.Path)
-	if err != nil {
-		return nil, err
-	}
-	return &brand, nil
-}
-
-func getBrandByPath(db *sql.DB, brandPath string) (*Brand, error) {
-	if db == nil {
-		return nil, errDBNil
-	}
-
-	q := `SELECT id, name, path FROM brands WHERE path = ?`
-	var brand Brand
-	err := db.QueryRow(q, brandPath).Scan(&brand.ID, &brand.Name, &brand.Path)
-	if err != nil {
-		return nil, fmt.Errorf("could not get brand for path %s => %w", brandPath, err)
-	}
-	return &brand, nil
-}
-
-func updateBrand(db *sql.DB, brand *Brand) error {
-	if db == nil {
-		return errDBNil
-	}
-
-	if brand == nil {
-		return errors.New("brand passed to updateBrand is nil")
-	}
-	if brand.ID < 1 {
-		return errors.New("need to supply a brand id to update")
-	}
-	q := `UPDATE brands SET name = ?, path = ? WHERE id = ?`
-	_, err := db.Exec(q, brand.Name, brand.Path, brand.ID)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func deleteBrandByID(db *sql.DB, brandID int) error {
-	if db == nil {
-		return errDBNil
-	}
-
-	if brandID < 1 {
-		return errors.New("need to supply a valid brand id to update")
-	}
-
-	q := `DELETE FROM brands WHERE id = ?`
-	if _, err := db.Exec(q, brandID); err != nil {
-		return err
-	}
-
-	return nil
-}
 
 /*Hashtag db funcs*/
 
@@ -1125,13 +829,13 @@ func getHashtagByID(db *sql.DB, id int) (*Hashtag, error) {
 // get all
 func getPersonas(limit, offset int) []Persona {
 	personas := []Persona{
-		{1, "Fiona", "", "https://replicate.delivery/pbxt/hHQ0aXYNnab3IRT39NsqDrgfJ4c3OfPeMz0Qe4MXPvj5NidMB/output_1.png"},
-		{2, "Emily", "", "https://replicate.delivery/pbxt/OrPxbF0Z9V78EhxVTXONM7msHZSKJgEIQGG9eXz3Vjw8YsjJA/output_1.png"},
-		{3, "Sarah", "", "https://replicate.delivery/pbxt/SNyHoT1Jla70GpYLNPgkMe2x1RJPyUaU4meT4fQHsiJO3wOmA/output_1.png"},
-		{4, "Aoife", "", "https://replicate.delivery/pbxt/7HKCIPYGhqqPEZ10YnjeuYeLRkkvOokRVIpHFC47lH7vSYHTA/output_1.png"},
-		{5, "Liz", "", "https://replicate.delivery/pbxt/asJWtatC9zKNL5qnZo5NPUs3bJfu8G4z6feGzBE9E49xgyOmA/output_1.png"},
-		{6, "Mia", "", "https://replicate.delivery/pbxt/40x0CWfDTUSaLqoZfyG5VX4ewSWp6XWRefQRUYt72AavKK7YC/output_1.png"},
-		{7, "Sinead", "", "https://replicate.delivery/pbxt/tAmmkAgi1exlWyWjxNgePDRBu9cnietW5y2h8dXkelKTHldMB/output_1.png"},
+		{1, "Michaela Gormley", "", "https://replicate.delivery/yhqm/uZSufO1ULetrN00FXde5s7mjJJB5i0yh3Drfms5HeBb0ReS1E/out-0.webp"},
+		{2, "Caroline Mullen ", "", "https://replicate.delivery/yhqm/kqyPgcRDPFZgAxqY5aQqgLtscg6x2zCal815fwTDDQZ15lqJA/out-0.webp"},
+		{3, "Susan Fagan", "", "https://replicate.delivery/yhqm/sxYBygzKehzXHiJk2zdLF4sK3LeZ0jx6ss9qgmbJKcreoXqmA/out-0.webp"},
+		{4, "Clare O'Shea", "", "https://replicate.delivery/yhqm/JqI1VW2t0f3lfkO4T7WfVciDf9BdsuzYcWljhcrFfGjfR9S1E/out-0.webp"},
+		{5, "Aisling O’Reilly", "", "https://replicate.delivery/yhqm/nXCbkLusEIItOJf0UY6JCiXs1oaxrpKLXwV8dkhKMe791LVTA/out-0.webp"},
+		{6, "Stacey Dowling", "", "https://replicate.delivery/yhqm/gMBf17FLmVQnGS9te4MWQJWlE6PdhjZd5Fhl2ycIZj1ftXqmA/out-0.webp"},
+		{7, "Danielle Duffy", "", "https://replicate.delivery/yhqm/rvXUljqA3QqxCtGa64qnmJyn5jh571lvA8Dixinh6LK39S1E/out-0.webp"},
 	}
 
 	lenPersonas := len(personas)
@@ -1150,16 +854,6 @@ func getPersonas(limit, offset int) []Persona {
 	}
 
 	return res
-}
-
-// get one persona
-func getPersonaByID(id int) (Persona, error) {
-	for _, p := range getPersonas(0, 0) {
-		if p.ID == id {
-			return p, nil
-		}
-	}
-	return Persona{}, fmt.Errorf("no persona with id %d", id)
 }
 
 // get one random persona
@@ -1187,61 +881,6 @@ func insertPostHashtagRelationship(db *sql.DB, postID, hashtagID int) error {
 type GetTopByPostCountResponse struct {
 	HashtagID int
 	PostCount int
-}
-
-func initPostHashTagTable(db *sql.DB) error {
-
-	if db == nil {
-		return errDBNil
-	}
-
-	q := `CREATE TABLE 
-	post_hashtags(
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		post_id  INTEGER NOT NULL,
-		hashtag_id INTEGER NOT NULL
-	);`
-	if _, err := db.Exec(q); err != nil {
-		return err
-	}
-	return nil
-}
-
-// TODO update these functions to addres website_id column
-func updatePost(db *sql.DB, p *Post) error {
-
-	if db == nil {
-		return errDBNil
-	}
-
-	if p == nil {
-		return errors.New("post past to update post is nil")
-	}
-
-	q := `UPDATE 
-		posts 
-	SET 
-		author_id = ?, 
-		src_url = ?, 
-		website_id = ?, 
-		description = ?, 
-		link = ? 
-	WHERE 
-		id = ?`
-
-	if _, err := db.Exec(
-		q,
-		p.AuthorID,
-		p.SrcURL,
-		p.WebsiteID,
-		p.Description,
-		p.Link,
-		p.ID,
-	); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 type getPostParams struct {
@@ -1450,7 +1089,7 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 		})
 	case 3:
 		// millies
-		doc.Find(".homepage-slider-parent .swiper-wrapper img").Each(func(i int, s *goquery.Selection) {
+		doc.Find(".homepage-slider-parent .swiper-wrapper img[width='720']").Each(func(i int, s *goquery.Selection) {
 			millies := BannerData{}
 			// For each item found, get the title
 			if value, found := s.Attr("data-src"); found {

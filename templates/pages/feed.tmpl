@@ -3,19 +3,15 @@
 
     <section class="bg-l-brown">
         <div class="mx-auto md:flex p-4 gap-4 justify-end max-w-7xl">
+
             <div class="grow">
                 <nav class="bg-white rounded p-4 mb-4">
                     <ul class="flex md:block gap-4">
-
-                        <li class="border-orange my-4 pb-1 font-bold" style="border-bottom: 1px solid orange;">
-                            <a href="/">BeautyBargains.ie</a>
-                        </li>
-
                         <li class="border-orange my-4 pb-1" style="border-bottom: 1px solid orange;">
                             <a href="/">Home</a>
                         </li>
                         <li class="border-orange my-4 pb-1" style="border-bottom: 1px solid orange;">
-                            <a href="/feed/">Latest Offers</a>
+                            <a href="/subscribe/">Subscribe</a>
                         </li>
 
                         <!-- <li class="border-orange my-2 pb-1" style="border-bottom: 1px solid orange;">Login</li> -->
@@ -23,19 +19,20 @@
                 </nav>
             </div>
 
+            <!-- main feed area -->
             <main id="feed" class="md:w-8/12 md:max-w-2xl">
                 {{ range .Events}}
-                    {{ template "event" . }}
+                    <div class="md:w-4/5 mx-auto">{{ template "event" . }}</div>
                 {{ end }}
             </main>
 
+            <!-- websites and hash tags -->
             <aside class="w-full md:w-3/12">
-
                 <div id="websites" class="p-4 mb-4 bg-white rounded w-full">
                     <p><strong>Stores</strong></p>
                     <ul>
                         {{ range .Websites }}
-                            <li><a href="/feed/{{ lower .WebsiteName }}/">{{ .WebsiteName }}</a></li>
+                            <li><a href="/{{ lower .WebsiteName }}/">{{ .WebsiteName }}</a></li>
                         {{ end }}
                     </ul>
                 </div>
@@ -46,17 +43,15 @@
                         {{ range .Trending }}
                             <li class="my-4">
                                 <div class="text-xs">{{ .Category }} - Trending</div>
-                                <div class="text-xl my-1"><a class="text-blue-500" href="/feed/?hashtag={{ .Phrase }}">#{{ .Phrase }}</a></div>
+                                <div class="text-xl my-1"><a class="text-blue-500" href="/?hashtag={{ .Phrase }}">#{{ .Phrase }}</a></div>
                                 <div class="text-xs">{{ .PostCount }} posts</div>
                             </li>
                         {{ end }}
                     </ul>
                 </div>
-
             </aside>
 
         </div>
-
     </section>
 
     {{ template "footer" . }}

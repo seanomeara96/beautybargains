@@ -1,0 +1,87 @@
+{{ define "event" }}
+<div
+  id="event"
+  class="border-l-2 border-orange flex w-full p-4 gap-4 mb-4 bg-white"
+>
+  <div class="flex-1 self-stretch text-left break-words">
+    <div class="flex justify-between">
+      <!--profile photo-->
+      <div class="flex gap-4  items-center">
+        <img
+          class="shrink-0 h-10 object-cover object-center aspect-square overflow-hidden"
+          style="border-radius: 50%"
+          src="{{ .Profile.Photo }}"
+        />
+
+        <!-- user summary -->
+        <div id="summary" class="text-sm">
+          <a id="user" class="font-bold">{{ .Profile.Username }}</a>
+          {{ .Content.Summary }}
+          <span class="text-gray-400">·</span>
+          <div id="date" class="text-gray-400">{{ .Content.TimeElapsed }}</div>
+        </div>
+      </div>
+
+      <!-- kebab menu -->
+      <div class="text-right">
+        <span
+          style="
+            display: inline-block;
+            transform: rotate(90deg);
+            transform-origin: center;
+            font-size: 2rem;
+            cursor: pointer;
+          "
+          >···</span
+        >
+      </div>
+    </div>
+
+    {{ if .Content.ExtraImages }}
+    <div
+      id="extra-images"
+      class="mt-2 bg-transparent p-0 text-black flex gap-4"
+    >
+      {{ range.Content.ExtraImages }}
+      <img class="block w-auto max-h-96 mx-auto" src="{{ .Src }}" alt="{{ .Alt }}" />
+      {{ end }}
+    </div>
+    {{ end }}
+
+    {{/* add a line break if there is both images and text */}}
+    {{ if and .Content.ExtraImages .Content.ExtraText }}
+    <div class="my-2"></div>
+    {{ end }}
+
+    {{ if .Content.ExtraText }}
+    <div
+      id="extra-text"
+      class="py-1 px-0 border-none font-normal max-w-lg text-lg leading-snug"
+    >
+      {{ .Content.ExtraText }}
+    </div>
+    {{ end }}
+
+    <div
+      id="meta"
+      class="inline-block text-sm mt-2 bg-transparent border-none rounded-none shadow-none p-0 text-gray-600"
+    >
+      {{ if gt .Meta.Likes 0 }}
+      <a id="like"> <i id="like icon">&hearts;</i> {{ .Meta.Likes }} Likes </a>
+      {{ end }}
+      {{if .Meta.CTALink }}
+      <a id="cta-link" href="{{ .Meta.CTALink }}">
+        <i id="src-icon">&#x1f6d2;</i>
+        Shop Now
+      </a>
+      {{ end }}
+      {{ if .Meta.Src }}
+      <a id="data-source" href="{{ .Meta.Src }}">
+        <i id="src-icon">&#9745;</i>
+        Source
+      </a>
+      {{ end }}
+    </div>
+  </div>
+</div>
+{{ end }}
