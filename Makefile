@@ -9,7 +9,7 @@ build:
 	go build -o bin/server.exe ./cmd/server 
 
 serve:
-	./bin/server -port 3000
+	./bin/server.exe -port 3000
 
 scrape: scrape2 scrape3
 

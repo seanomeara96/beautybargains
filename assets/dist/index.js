@@ -26,7 +26,7 @@ eval("var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPAC
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
-eval("__webpack_require__.r(__webpack_exports__);\n/* harmony import */ var _htmx_min_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./htmx.min.js */ \"./assets/src/htmx.min.js\");\n/* harmony import */ var _htmx_min_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_htmx_min_js__WEBPACK_IMPORTED_MODULE_0__);\n\r\n\r\n\r\n\n\n//# sourceURL=webpack://beautybargains/./assets/src/index.js?");
+eval("__webpack_require__.r(__webpack_exports__);\n/* harmony import */ var _htmx_min_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./htmx.min.js */ \"./assets/src/htmx.min.js\");\n/* harmony import */ var _htmx_min_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_htmx_min_js__WEBPACK_IMPORTED_MODULE_0__);\n\n\n\n\n\n//# sourceURL=webpack://beautybargains/./assets/src/index.js?");
 
 /***/ })
 
