@@ -266,17 +266,17 @@ func server(db *sql.DB) error {
 	renderPage := newRenderPageFunc(renderFunc, mode)
 
 	/*
-		Home / Index Handler
-	*/
-	handle("/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
-	handle("/{websiteName}/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
-
-	/*
 		Promotions Handlers
 	*/
 	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, renderPage)).Methods(http.MethodPost)
 	handle("/subscribe/", handleGetSubscribePage(renderPage)).Methods(http.MethodGet)
 	handle("/subscribe/verify", handleGetVerifySubscription(db, renderPage)).Methods(http.MethodGet)
+
+	/*
+		Home / Index Handler
+	*/
+	handle("/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
+	handle("/store/{websiteName}", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
