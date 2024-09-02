@@ -46,6 +46,33 @@ type Website struct {
 	URL         string `json:"url"`
 	Country     string `json:"country"`
 	Score       float64
+	Screenshot  string `json:"screenshot"`
+}
+
+var websites = []Website{
+	{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 10, "www.beautyfeatures.ie_.png"},
+	{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8, "www.lookfantastic.ie_.png"},
+	{3, "Millies", "https://millies.ie", "IE", 9, "millies.ie_.png"},
+	{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 3, "www.mccauley.ie_.png"},
+}
+
+type Category struct {
+	Name string
+}
+
+var categories = []Category{
+	{"Haircare"},
+	{"Skincare"},
+	{"Makeup"},
+	{"Fragrance"},
+	{"Body Care"},
+	{"Nail Care"},
+	{"Men's Grooming"},
+	{"Beauty Tools"},
+	{"Bath & Shower"},
+	{"Sun Care"},
+	{"Oral Care"},
+	{"Wellness"},
 }
 
 type Brand struct {
@@ -53,6 +80,43 @@ type Brand struct {
 	Name  string
 	Path  string
 	Score float64
+}
+
+type getAllBrandsParams struct {
+	Limit, Offset int
+}
+
+func dbGetBrands(db *sql.DB, params getAllBrandsParams) ([]Brand, error) {
+	var q string
+	var rows *sql.Rows
+	var err error
+	if params.Limit == 0 {
+		q = `SELECT id, name, path, score FROM brands`
+		rows, err = db.Query(q)
+	} else {
+		q = `SELECT id, name, path, score FROM brands LIMIT ? OFFSET ?`
+		rows, err = db.Query(q, params.Limit, params.Offset)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("could not query brands: %w", err)
+	}
+	defer rows.Close()
+
+	brands := make([]Brand, 0, params.Limit) // Preallocate slice with capacity if limit is supplied
+	for rows.Next() {
+		var brand Brand
+		if err := rows.Scan(&brand.ID, &brand.Name, &brand.Path, &brand.Score); err != nil {
+			return nil, fmt.Errorf("could not scan brand: %w", err)
+		}
+		brands = append(brands, brand)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return brands, nil
 }
 
 type Post struct {
@@ -220,8 +284,8 @@ func server(db *sql.DB, mode Mode, port string) error {
 		return fmt.Errorf("port is required via -port flag")
 	}
 
-	if mode == "" {
-		log.Println("No mode was supplied, starting server in development mode.")
+	if mode == "" || mode == "dev" {
+		log.Println("Starting server in development mode.")
 		mode = Dev
 	}
 
@@ -237,9 +301,9 @@ func server(db *sql.DB, mode Mode, port string) error {
 	assetsFileServer := http.FileServer(assetsDir)
 	r.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", assetsFileServer))
 
-	imageDir := http.Dir("images")
+	imageDir := http.Dir("static/website_screenshots")
 	imagesFileServer := http.FileServer(imageDir)
-	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", imagesFileServer))
+	r.PathPrefix("/website_screenshots/").Handler(http.StripPrefix("/website_screenshots/", imagesFileServer))
 
 	/*
 		Serve robots.txt & sitemap
@@ -486,6 +550,8 @@ func handleGetFeed(db *sql.DB, render renderPageFunc) htmlHandleFunc {
 		getPostParams.IDs = postIDs
 		getPostParams.SortByTimestampDesc = params.SortByTimestampDesc
 		getPostParams.WebsiteID = params.WebsiteID
+		getPostParams.Limit = 6
+
 		promos, err := getPosts(db, getPostParams)
 		if err != nil {
 			return nil, fmt.Errorf("cant get posts: %w", err)
@@ -585,9 +651,10 @@ func handleGetFeed(db *sql.DB, render renderPageFunc) htmlHandleFunc {
 		}
 
 		data := map[string]any{
-			"Events":   events,
-			"Websites": getWebsites(0, 0),
-			"Trending": trendingHashtags,
+			"Events":     events,
+			"Websites":   getWebsites(0, 0),
+			"Trending":   trendingHashtags,
+			"Categories": getCategories(0, 0),
 		}
 
 		return render(r, "feedpage", data)
@@ -892,6 +959,7 @@ type getPostParams struct {
 	WebsiteID           int
 	SortByTimestampDesc bool
 	IDs                 []int
+	Limit               int
 }
 
 func getPosts(db *sql.DB, params getPostParams) ([]*Post, error) {
@@ -926,6 +994,11 @@ func getPosts(db *sql.DB, params getPostParams) ([]*Post, error) {
 
 	if params.SortByTimestampDesc {
 		q += " ORDER BY timestamp DESC"
+	}
+
+	if params.Limit > 0 {
+		q += " Limit ?"
+		args = append(args, params.Limit)
 	}
 
 	rows, err := db.Query(q, args...)
@@ -984,13 +1057,6 @@ func getWebsiteByName(websiteName string) (Website, error) {
 }
 
 func getWebsites(limit, offset int) []Website {
-	websites := []Website{
-		{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 10},
-		{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8},
-		{3, "Millies", "https://millies.ie", "IE", 9},
-		{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 3},
-	}
-
 	lenWebsites := len(websites)
 
 	if limit == 0 || limit > lenWebsites {
@@ -1001,9 +1067,27 @@ func getWebsites(limit, offset int) []Website {
 		offset = 0
 	}
 
-	toReturn := []Website{}
+	toReturn := make([]Website, 0, limit)
 	for i := offset; i < limit; i++ {
 		toReturn = append(toReturn, websites[i])
+	}
+	return toReturn
+}
+
+func getCategories(limit, offset int) []Category {
+	lenCategories := len(categories)
+
+	if limit == 0 || limit > lenCategories {
+		limit = lenCategories
+	}
+
+	if offset >= lenCategories {
+		offset = 0
+	}
+
+	toReturn := make([]Category, 0, limit)
+	for i := offset; i < limit; i++ {
+		toReturn = append(toReturn, categories[i])
 	}
 	return toReturn
 }
