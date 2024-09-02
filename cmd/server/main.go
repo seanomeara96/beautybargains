@@ -196,6 +196,11 @@ func tmpl() *template.Template {
 	return _tmpl
 }
 
+func reportErr(r *http.Request, err error) {
+	err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
+	log.Print(err)
+}
+
 func server(db *sql.DB) error {
 	_port := flag.String("port", "", "http port")
 	_mode := flag.String("mode", "", "deployment mode")
@@ -243,20 +248,14 @@ func server(db *sql.DB) error {
 	handle := func(path string, fn htmlHandleFunc) *mux.Route {
 		return r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 
-			reportErr := func(err error) {
-				err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
-				log.Print(err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-
 			bytes, err := fn(w, r)
 			if err != nil {
-				reportErr(err)
+				reportErr(r, err)
 				return
 			}
 
 			if _, err := w.Write(*bytes); err != nil {
-				reportErr(err)
+				reportErr(r, err)
 			}
 
 		})
@@ -382,7 +381,6 @@ func extractOffersFromBanners(db *sql.DB) error {
 			}
 
 			uniqueBanners = append(uniqueBanners, banner)
-
 		}
 
 		for _, banner := range uniqueBanners {
