@@ -161,15 +161,28 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := extractOffersFromBanners(db); err != nil {
-		log.Fatal(err)
+	skip := flag.Bool("skip", false, "skip bannner extraction and hashtag processing")
+	_port := flag.String("port", "", "http port")
+	_mode := flag.String("mode", "", "deployment mode")
+
+	flag.Parse()
+
+	port := *_port
+	mode = Mode(*_mode)
+
+	if !*skip {
+		if err := extractOffersFromBanners(db); err != nil {
+			log.Fatal(err)
+		}
+
+		if err := processHashtags(db); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		log.Println("skipping banner extractions and hashtag process")
 	}
 
-	if err := processHashtags(db); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := server(db); err != nil {
+	if err := server(db, mode, port); err != nil {
 		log.Fatal(err)
 	}
 
@@ -201,14 +214,7 @@ func reportErr(r *http.Request, err error) {
 	log.Print(err)
 }
 
-func server(db *sql.DB) error {
-	_port := flag.String("port", "", "http port")
-	_mode := flag.String("mode", "", "deployment mode")
-
-	flag.Parse()
-
-	port := *_port
-	mode = Mode(*_mode)
+func server(db *sql.DB, mode Mode, port string) error {
 
 	if port == "" {
 		return fmt.Errorf("port is required via -port flag")
@@ -536,7 +542,7 @@ func handleGetFeed(db *sql.DB, render renderPageFunc) htmlHandleFunc {
 
 			for _, match := range matches {
 				phrase := strings.ToLower(match[1])
-				extraText = strings.Replace(extraText, match[0], fmt.Sprintf("<a class='text-blue-500' href='/feed/?hashtag=%s'>%s</a>", phrase, match[0]), 1)
+				extraText = strings.Replace(extraText, match[0], fmt.Sprintf("<a class='text-blue-500' href='?hashtag=%s'>%s</a>", phrase, match[0]), 1)
 			}
 
 			extraTextHTML := template.HTML(extraText)

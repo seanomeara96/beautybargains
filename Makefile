@@ -1,3 +1,5 @@
+dev: build quickserve
+
 run: build serve
 
 deploy: style build serve
@@ -10,6 +12,9 @@ build:
 
 serve:
 	./bin/server.exe -port 3000
+
+quickserve:
+	./bin/server.exe -port 3000 -mode dev --skip
 
 scrape: scrape2 scrape3
 
