@@ -1,12 +1,11 @@
 {{ define "subscriptionverification" }}
     {{ template "header" . }}
-    <div class="ui container">
-        <div class="ui success message">
-            <i class="close icon"></i>
-            <div class="header">
-                Thank you for verifying your email!
+    <div class="container mx-auto px-4 py-8">
+        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-lg shadow-md">
+            <div class="flex items-center justify-between">
+                <h2 class="text-xl font-bold mb-2">Thank you for verifying your email!</h2>
             </div>
-            <p>We'll keep you up to date on offers on all your favourite brands and products!</p>
+            <p class="text-base">We'll keep you up to date on offers on all your favourite brands and products!</p>
         </div>
     </div>
     {{ template "footer" . }}

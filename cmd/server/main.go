@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	mrand "math/rand"
 	"net/http"
@@ -19,7 +20,6 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sashabaranov/go-openai"
@@ -41,16 +41,16 @@ type BannerData struct {
 
 // Website struct matching the Websites table
 type Website struct {
-	WebsiteID   int    `json:"website_id"`
-	WebsiteName string `json:"website_name"`
-	URL         string `json:"url"`
-	Country     string `json:"country"`
-	Score       float64
-	Screenshot  string `json:"screenshot"`
+	WebsiteID   int     `json:"website_id"`
+	WebsiteName string  `json:"website_name"`
+	URL         string  `json:"url"`
+	Country     string  `json:"country"`
+	Score       float64 `json:"score"`
+	Screenshot  string  `json:"screenshot"`
 }
 
 var websites = []Website{
-	{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 10, "www.beautyfeatures.ie_.png"},
+	{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 8, "www.beautyfeatures.ie_.png"},
 	{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8, "www.lookfantastic.ie_.png"},
 	{3, "Millies", "https://millies.ie", "IE", 9, "millies.ie_.png"},
 	{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 3, "www.mccauley.ie_.png"},
@@ -147,9 +147,7 @@ type Trending struct {
 	PostCount int
 }
 
-type renderFunc func(name string, data any) (*[]byte, error)
-type renderPageFunc func(r *http.Request, name string, data map[string]any) (*[]byte, error)
-type htmlHandleFunc func(w http.ResponseWriter, r *http.Request) (*[]byte, error)
+type handleFunc func(w http.ResponseWriter, r *http.Request) error
 
 type MenuItem struct {
 	Path string
@@ -209,7 +207,24 @@ type Event struct {
 	Meta    EventMeta
 }
 
+var db *sql.DB
+var err error
 var mode Mode
+var port string
+var productionDomain string
+
+func processing(ready <-chan time.Time) {
+	fmt.Println("start processing")
+	if err := extractOffersFromBanners(); err != nil {
+		reportErr(err)
+	}
+	if err := scorePosts(); err != nil {
+		reportErr(err)
+	}
+	fmt.Println("finished processing")
+	<-ready
+	processing(ready)
+}
 
 /* models end */
 
@@ -219,37 +234,57 @@ func main() {
 		log.Fatal(err)
 	}
 
-	db, err := sql.Open("sqlite3", "main.db")
+	db, err = sql.Open("sqlite3", "main.db")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	skip := flag.Bool("skip", false, "skip bannner extraction and hashtag processing")
+	_skip := flag.Bool("skip", false, "skip bannner extraction and hashtag processing")
 	_port := flag.String("port", "", "http port")
 	_mode := flag.String("mode", "", "deployment mode")
 
 	flag.Parse()
 
-	port := *_port
+	port = *_port
 	mode = Mode(*_mode)
+	skip := *_skip
 
-	if !*skip {
-		if err := extractOffersFromBanners(db); err != nil {
-			log.Fatal(err)
-		}
-
-		if err := processHashtags(db); err != nil {
-			log.Fatal(err)
-		}
+	if !skip {
+		ticker := time.NewTicker(time.Hour)
+		go processing(ticker.C)
 	} else {
 		log.Println("skipping banner extractions and hashtag process")
 	}
 
-	if err := server(db, mode, port); err != nil {
+	if err := server(); err != nil {
 		log.Fatal(err)
 	}
 
+}
+
+func scorePosts() error {
+	posts, err := getPosts(db, getPostParams{})
+	if err != nil {
+		return err
+	}
+
+	for i := range posts {
+		w, err := getWebsiteByID(posts[i].WebsiteID)
+		if err != nil {
+			return err
+		}
+
+		if posts[i].Score != float64(w.Score) {
+			posts[i].Score = float64(w.Score)
+			_, err := db.Exec("UPDATE posts SET score = ? WHERE id = ?", posts[i].Score, posts[i].ID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 var _tmpl *template.Template
@@ -273,12 +308,12 @@ func tmpl() *template.Template {
 	return _tmpl
 }
 
-func reportErr(r *http.Request, err error) {
-	err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
+func reportErr(err error) {
+
 	log.Print(err)
 }
 
-func server(db *sql.DB, mode Mode, port string) error {
+func server() error {
 
 	if port == "" {
 		return fmt.Errorf("port is required via -port flag")
@@ -289,21 +324,20 @@ func server(db *sql.DB, mode Mode, port string) error {
 		mode = Dev
 	}
 
-	productionDomain := os.Getenv("PROD_DOMAIN")
+	productionDomain = os.Getenv("PROD_DOMAIN")
 	if mode == Prod && productionDomain == "" {
 		return errors.New("must supply production domain to run server in prod")
 	}
 
-	r := mux.NewRouter()
-	r.StrictSlash(true)
+	r := http.NewServeMux()
 
 	assetsDir := http.Dir("assets/dist")
 	assetsFileServer := http.FileServer(assetsDir)
-	r.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", assetsFileServer))
+	r.Handle("/assets/", http.StripPrefix("/assets/", assetsFileServer))
 
 	imageDir := http.Dir("static/website_screenshots")
 	imagesFileServer := http.FileServer(imageDir)
-	r.PathPrefix("/website_screenshots/").Handler(http.StripPrefix("/website_screenshots/", imagesFileServer))
+	r.Handle("/website_screenshots/", http.StripPrefix("/website_screenshots/", imagesFileServer))
 
 	/*
 		Serve robots.txt & sitemap
@@ -315,37 +349,45 @@ func server(db *sql.DB, mode Mode, port string) error {
 		http.ServeFile(w, r, "./static/sitemap.xml")
 	})
 
-	handle := func(path string, fn htmlHandleFunc) *mux.Route {
-		return r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+	globalMiddleware := []func(next handleFunc) handleFunc{
+		func(next handleFunc) handleFunc {
+			return (func(w http.ResponseWriter, r *http.Request) error {
+				log.Printf("%s => %s", r.Method, r.URL.Path)
+				return next(w, r)
+			})
+		},
+	}
 
-			bytes, err := fn(w, r)
+	handle := func(path string, fn handleFunc) {
+
+		for i := range globalMiddleware {
+			fn = globalMiddleware[i](fn)
+		}
+
+		r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+
+			err := fn(w, r)
 			if err != nil {
-				reportErr(r, err)
+				err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
+				reportErr(err)
 				return
-			}
-
-			if _, err := w.Write(*bytes); err != nil {
-				reportErr(r, err)
 			}
 
 		})
 	}
 
-	renderFunc := newRenderFunc(tmpl)
-	renderPage := newRenderPageFunc(renderFunc, mode)
-
 	/*
 		Promotions Handlers
 	*/
-	handle("/subscribe/", handlePostSubscribe(mode, port, productionDomain, db, renderPage)).Methods(http.MethodPost)
-	handle("/subscribe/", handleGetSubscribePage(renderPage)).Methods(http.MethodGet)
-	handle("/subscribe/verify", handleGetVerifySubscription(db, renderPage)).Methods(http.MethodGet)
+	handle("POST /subscribe", handlePostSubscribe)
+	handle("GET /subscribe", handleGetSubscribePage)
+	handle("GET /subscribe/verify", handleGetVerifySubscription)
 
 	/*
 		Home / Index Handler
 	*/
-	handle("/", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
-	handle("/store/{websiteName}", handleGetFeed(db, renderPage)).Methods(http.MethodGet)
+	handle("/", handleGetFeed)
+	handle("GET /store/{websiteName}", handleGetFeed)
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
@@ -354,7 +396,7 @@ func server(db *sql.DB, mode Mode, port string) error {
 	return nil
 }
 
-func processHashtags(db *sql.DB) error {
+func processHashtags() error {
 
 	/*
 		Get all posts. At some point I will have to implement a way to filter for posts
@@ -425,7 +467,7 @@ func processHashtags(db *sql.DB) error {
 	return nil
 }
 
-func extractOffersFromBanners(db *sql.DB) error {
+func extractOffersFromBanners() error {
 
 	websites := getWebsites(0, 0)
 
@@ -479,273 +521,292 @@ func extractOffersFromBanners(db *sql.DB) error {
 
 	}
 
-	if err := processHashtags(db); err != nil {
+	if err := processHashtags(); err != nil {
 		return err
 	}
 	return nil
 }
 
-/* Handlers */
-func handleGetHomePage(render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		return render(r, "home", map[string]any{})
+func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
+	websiteName := r.PathValue("websiteName")
+	hashtagQuery := r.URL.Query().Get("hashtag")
+
+	var website Website
+	if websiteName != "" {
+		w, err := getWebsiteByName(websiteName)
+		if err == nil {
+			website = w
+		}
 	}
-}
 
-func handleGetFeed(db *sql.DB, render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		websiteName := mux.Vars(r)["websiteName"]
-		hashtagQuery := r.URL.Query().Get("hashtag")
-
-		type FeedParams struct {
-			WebsiteID           int
-			SortByTimestampDesc bool
-			Hashtag             string
+	var postIDs []int
+	if hashtagQuery != "" {
+		hashtagID, err := getHashtagIDByPhrase(db, hashtagQuery)
+		if err != nil {
+			return fmt.Errorf("could not get hashtag id in get by phrase. %w", err)
 		}
 
-		params := FeedParams{
-			SortByTimestampDesc: true,
+		postIdRows, err := db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
+		if err != nil {
+			return fmt.Errorf("error getting post_ids from post_hashtags db. %w", err)
 		}
+		defer postIdRows.Close()
 
-		if websiteName != "" {
-			website, err := getWebsiteByName(websiteName)
-			if err == nil {
-				params.WebsiteID = website.WebsiteID
+		for postIdRows.Next() {
+			var id int
+			err := postIdRows.Scan(&id)
+			if err != nil {
+				return fmt.Errorf("error scanning post_id in getposts. %w", err)
+			}
+			postIDs = append(postIDs, id)
+		}
+	}
+
+	var getPostParams getPostParams
+	getPostParams.IDs = postIDs
+	getPostParams.SortBy = "score"
+	getPostParams.WebsiteID = website.WebsiteID
+	getPostParams.Limit = 6
+
+	rows, err := db.Query(`WITH orderedPosts AS (
+	SELECT 
+        p.id,
+        p.description,
+		p.author_id,
+		p.Score,
+        p.src_url,
+        p.timestamp,
+        p.website_id
+    FROM 
+        posts p
+    WHERE 
+        p.timestamp > datetime('now', '-3 days')
+    ORDER BY 
+        p.timestamp DESC
+	) SELECT 
+        op.id,
+        op.description,
+		op.author_id,
+		op.Score,
+        op.src_url,
+        op.timestamp,
+        op.website_id
+    FROM 
+        orderedPosts op
+	ORDER BY
+		score DESC
+	LIMIT 6
+	`)
+	if err != nil {
+		return err
+	}
+	var posts []Post
+	for rows.Next() {
+		var post Post
+		if err := rows.Scan(&post.ID, &post.Description, &post.AuthorID, &post.Score, &post.SrcURL, &post.Timestamp, &post.WebsiteID); err != nil {
+			return err
+		}
+		posts = append(posts, post)
+	}
+
+	personas := getPersonas(0, 0)
+
+	events := []Event{}
+	for i := 0; i < len(posts); i++ {
+		e := Event{}
+		for _, persona := range personas {
+			if persona.ID == posts[i].AuthorID {
+				e.Profile.Username = persona.Name
+				e.Profile.Photo = persona.ProfilePhoto
+			}
+		}
+		//	e.Profile.Username
+
+		// Step 1: Calculate Time Difference
+		timeDiff := time.Since(posts[i].Timestamp)
+
+		// Step 2: Determine Unit (Days or Hours)
+		var unit string
+		var magnitude int
+
+		hours := int(timeDiff.Hours())
+		days := hours / 24
+
+		if days > 0 {
+			unit = "Days"
+			magnitude = days
+		} else {
+			if hours == 1 {
+				unit = "Hour"
 			} else {
-				params.WebsiteID = 0
+				unit = "Hours"
 			}
-
+			magnitude = hours
 		}
 
-		if hashtagQuery != "" {
-			params.Hashtag = hashtagQuery
+		// Step 3: Format String
+		e.Content.TimeElapsed = fmt.Sprintf("%d %s ago", magnitude, unit)
+		e.Meta.Src = &posts[i].SrcURL
+
+		if posts[i].Link != "" {
+			e.Meta.CTALink = &posts[i].Link
 		}
 
-		var postIDs []int
-		if params.Hashtag != "" {
-			hashtagID, err := getHashtagIDByPhrase(db, params.Hashtag)
-			if err != nil {
-				return nil, fmt.Errorf("could not get hashtag id in get by phrase. %w", err)
-			}
+		pattern := regexp.MustCompile(`#(\w+)`)
 
-			postIdRows, err := db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
-			if err != nil {
-				return nil, fmt.Errorf("error getting post_ids from post_hashtags db. %w", err)
-			}
-			defer postIdRows.Close()
+		extraText := posts[i].Description
 
-			ids := []int{}
-			for postIdRows.Next() {
-				var id int
-				err := postIdRows.Scan(&id)
-				if err != nil {
-					return nil, fmt.Errorf("error scanning post_id in getposts. %w", err)
-				}
-				ids = append(ids, id)
-			}
-			postIDs = ids
+		matches := pattern.FindAllStringSubmatch(extraText, -1)
+
+		for _, match := range matches {
+			phrase := strings.ToLower(match[1])
+			extraText = strings.Replace(extraText, match[0], fmt.Sprintf("<a class='text-blue-500' href='?hashtag=%s'>%s</a>", phrase, match[0]), 1)
 		}
 
-		getPostParams := getPostParams{}
-		getPostParams.IDs = postIDs
-		getPostParams.SortByTimestampDesc = params.SortByTimestampDesc
-		getPostParams.WebsiteID = params.WebsiteID
-		getPostParams.Limit = 6
+		extraTextHTML := template.HTML(extraText)
 
-		promos, err := getPosts(db, getPostParams)
+		e.Content.ExtraText = &extraTextHTML
+		website, err := getWebsiteByID(posts[i].WebsiteID)
 		if err != nil {
-			return nil, fmt.Errorf("cant get posts: %w", err)
+			return fmt.Errorf("could not get website by id %d. %v", posts[i].WebsiteID, err)
 		}
-
-		personas := getPersonas(0, 0)
-
-		events := []Event{}
-		for i := 0; i < len(promos); i++ {
-			e := Event{}
-			for _, persona := range personas {
-				if persona.ID == promos[i].AuthorID {
-					e.Profile.Username = persona.Name
-					e.Profile.Photo = persona.ProfilePhoto
-				}
-			}
-			//	e.Profile.Username
-
-			// Step 1: Calculate Time Difference
-			timeDiff := time.Since(promos[i].Timestamp)
-
-			// Step 2: Determine Unit (Days or Hours)
-			var unit string
-			var magnitude int
-
-			hours := int(timeDiff.Hours())
-			days := hours / 24
-
-			if days > 0 {
-				unit = "Days"
-				magnitude = days
-			} else {
-				if hours == 1 {
-					unit = "Hour"
-				} else {
-					unit = "Hours"
-				}
-				magnitude = hours
-			}
-
-			// Step 3: Format String
-			e.Content.TimeElapsed = fmt.Sprintf("%d %s ago", magnitude, unit)
-			e.Meta.Src = &promos[i].SrcURL
-
-			if promos[i].Link != "" {
-				e.Meta.CTALink = &promos[i].Link
-			}
-
-			pattern := regexp.MustCompile(`#(\w+)`)
-
-			extraText := promos[i].Description
-
-			matches := pattern.FindAllStringSubmatch(extraText, -1)
-
-			for _, match := range matches {
-				phrase := strings.ToLower(match[1])
-				extraText = strings.Replace(extraText, match[0], fmt.Sprintf("<a class='text-blue-500' href='?hashtag=%s'>%s</a>", phrase, match[0]), 1)
-			}
-
-			extraTextHTML := template.HTML(extraText)
-
-			e.Content.ExtraText = &extraTextHTML
-			website, err := getWebsiteByID(promos[i].WebsiteID)
-			if err != nil {
-				return nil, fmt.Errorf("could not get website by id %d. %v", promos[i].WebsiteID, err)
-			}
-			e.Content.Summary = fmt.Sprintf("posted an update about %s", website.WebsiteName)
-			// e.Content.ExtraImages = nil
-			e.Content.ExtraImages = &[]ExtraImage{{promos[i].SrcURL, ""}}
-			events = append(events, e)
-		}
-
-		limit := 5
-		q := `SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT ?`
-		rows, err := db.Query(q, limit)
-		if err != nil {
-			return nil, fmt.Errorf("could not count hashtag mentions in db: %w", err)
-		}
-		defer rows.Close()
-
-		top := make([]GetTopByPostCountResponse, 0, limit)
-		for rows.Next() {
-			var row GetTopByPostCountResponse
-			if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
-				return nil, err
-			}
-			top = append(top, row)
-		} // should expect an array like {hashtag, postcount}
-
-		var trendingHashtags []*Trending
-		for _, row := range top {
-			hashtag, err := getHashtagByID(db, row.HashtagID)
-			if err != nil {
-				return nil, fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
-			}
-			trendingHashtags = append(trendingHashtags, &Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
-		}
-
-		data := map[string]any{
-			"Events":     events,
-			"Websites":   getWebsites(0, 0),
-			"Trending":   trendingHashtags,
-			"Categories": getCategories(0, 0),
-		}
-
-		return render(r, "feedpage", data)
+		e.Content.Summary = fmt.Sprintf("posted an update about %s", website.WebsiteName)
+		// e.Content.ExtraImages = nil
+		e.Content.ExtraImages = &[]ExtraImage{{posts[i].SrcURL, ""}}
+		events = append(events, e)
 	}
+
+	limit := 5
+	q := `SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT ?`
+	rows, err = db.Query(q, limit)
+	if err != nil {
+		return fmt.Errorf("could not count hashtag mentions in db: %w", err)
+	}
+	defer rows.Close()
+
+	top := make([]GetTopByPostCountResponse, 0, limit)
+	for rows.Next() {
+		var row GetTopByPostCountResponse
+		if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
+			return err
+		}
+		top = append(top, row)
+	} // should expect an array like {hashtag, postcount}
+
+	var trendingHashtags []*Trending
+	for _, row := range top {
+		hashtag, err := getHashtagByID(db, row.HashtagID)
+		if err != nil {
+			return fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
+		}
+		trendingHashtags = append(trendingHashtags, &Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
+	}
+
+	subscribed := false
+	c, err := r.Cookie("subscription_status")
+	if err != nil && err != http.ErrNoCookie {
+		return err
+	}
+
+	if c != nil {
+		subscribed = c.Value == "subscribed"
+	}
+
+	data := map[string]any{
+		"AlreadySubscribed": subscribed,
+		"Events":            events,
+		"Websites":          getWebsites(0, 0),
+		"Trending":          trendingHashtags,
+		"Categories":        getCategories(0, 0),
+	}
+
+	return renderPage(w, "feedpage", data)
+}
+
+func handlePostSubscribe(w http.ResponseWriter, r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("could not parse form: %w", err)
+	}
+
+	email := r.FormValue("email")
+	consent := r.FormValue("consent")
+
+	if consent != "on" {
+		// TODO maybe create an error state
+		return render(w, "subscriptionform", map[string]any{"ConsentErr": "Please consent so we can add you to our mailing list. Thanks!"})
+	}
+
+	q := `INSERT INTO subscribers(email, consent) VALUES (?, 1)`
+	if _, err := db.Exec(q, email); err != nil {
+		return fmt.Errorf("could not insert email into subscibers table => %w", err)
+	}
+
+	// Calculate the required byte size based on the length of the token
+	byteSize := 20 / 2 // Each byte is represented by 2 characters in hexadecimal encoding
+
+	// Create a byte slice to store the random bytes
+	randomBytes := make([]byte, byteSize)
+
+	// Read random bytes from the crypto/rand package
+	if _, err := crand.Read(randomBytes); err != nil {
+		return err
+	}
+
+	// Encode the random bytes into a hexadecimal string
+	token := fmt.Sprintf("%x", randomBytes)
+
+	// TODO move gernate token to service level
+	// TODO do one insert with both email and verification token
+
+	setVerificationTokenQuery := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
+	if _, err := db.Exec(setVerificationTokenQuery, token, email); err != nil {
+		return fmt.Errorf("could not add verification token to user by email => %w", err)
+	}
+
+	domain := "http://localhost:" + port
+	if mode == Prod {
+		domain = productionDomain
+	}
+
+	log.Printf("Verify subscription at %s/subscribe/verify?token=%s", domain, token)
+	/* TODO implement this in production. For now log to console
+	err = s.SendVerificationToken(email, token)
+		if err != nil {
+			return fmt.Errorf("failed to send verification token => %w", err)
+		}*/
+
+	http.SetCookie(w, &http.Cookie{
+		Name:    "subscription_status",
+		Value:   "subscribed",
+		Expires: time.Now().Add(30 * 24 * time.Hour),
+	})
+
+	return render(w, "subscriptionsuccess", nil)
 
 }
 
-func handlePostSubscribe(mode Mode, port, productionDomain string, db *sql.DB, render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		if err := r.ParseForm(); err != nil {
-			return nil, fmt.Errorf("could not parse form: %w", err)
-		}
-
-		email := r.FormValue("email")
-		consent := r.FormValue("consent")
-
-		if consent != "on" {
-			// TODO maybe create an error state
-			return render(r, "subscriptionform", map[string]any{"ConsentErr": "Please consent so we can add you to our mailing list. Thanks!"})
-		}
-
-		q := `INSERT INTO subscribers(email, consent) VALUES (?, 1)`
-		if _, err := db.Exec(q, email); err != nil {
-			return nil, fmt.Errorf("could not insert email into subscibers table => %w", err)
-		}
-
-		// Calculate the required byte size based on the length of the token
-		byteSize := 20 / 2 // Each byte is represented by 2 characters in hexadecimal encoding
-
-		// Create a byte slice to store the random bytes
-		randomBytes := make([]byte, byteSize)
-
-		// Read random bytes from the crypto/rand package
-		if _, err := crand.Read(randomBytes); err != nil {
-			return nil, err
-		}
-
-		// Encode the random bytes into a hexadecimal string
-		token := fmt.Sprintf("%x", randomBytes)
-
-		// TODO move gernate token to service level
-		// TODO do one insert with both email and verification token
-
-		setVerificationTokenQuery := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
-		if _, err := db.Exec(setVerificationTokenQuery, token, email); err != nil {
-			return nil, fmt.Errorf("could not add verification token to user by email => %w", err)
-		}
-
-		domain := "http://localhost:" + port
-		if mode == Prod {
-			domain = productionDomain
-		}
-
-		log.Printf("Verify subscription at %s/subscribe/verify?token=%s", domain, token)
-		/* TODO implement this in production. For now log to console
-		err = s.SendVerificationToken(email, token)
-			if err != nil {
-				return fmt.Errorf("failed to send verification token => %w", err)
-			}*/
-
-		return render(r, "subscriptionsuccess", nil)
-
-	}
+func handleGetSubscribePage(w http.ResponseWriter, r *http.Request) error {
+	return renderPage(w, "subscribepage", map[string]any{})
 }
 
-func handleGetSubscribePage(render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		return render(r, "subscribepage", map[string]any{})
+func handleGetVerifySubscription(w http.ResponseWriter, r *http.Request) error {
+	vars := r.URL.Query()
+	token := vars.Get("token")
+
+	if token == "" {
+		// ("Warning: subscription verification attempted with no token")
+		return handleGetFeed(w, r)
 	}
-}
 
-func handleGetVerifySubscription(db *sql.DB, render renderPageFunc) htmlHandleFunc {
-	return func(w http.ResponseWriter, r *http.Request) (*[]byte, error) {
-		vars := r.URL.Query()
-		token := vars.Get("token")
-
-		if token == "" {
-			// ("Warning: subscription verification attempted with no token")
-			return handleGetHomePage(render)(w, r)
-		}
-
-		q := `UPDATE subscribers SET is_verified = 1 WHERE verification_token = ?`
-		_, err := db.Exec(q, token)
-		if err != nil {
-			return nil, fmt.Errorf("could not verify subscription via verification token => %w", err)
-		}
-
-		// subscription confirmed
-
-		return render(r, "subscriptionverification", map[string]any{})
+	q := `UPDATE subscribers SET is_verified = 1 WHERE verification_token = ?`
+	_, err := db.Exec(q, token)
+	if err != nil {
+		return fmt.Errorf("could not verify subscription via verification token => %w", err)
 	}
+
+	// subscription confirmed
+
+	return renderPage(w, "subscriptionverification", map[string]any{})
 }
 
 /* handlers end */
@@ -801,30 +862,25 @@ func lower(s string) string {
 
 /* template functions end */
 
-func newRenderPageFunc(render renderFunc, mode Mode) renderPageFunc {
-	return func(r *http.Request, name string, data map[string]any) (*[]byte, error) {
-		templateData := map[string]any{
-			"Request": r,
-			"Env":     mode,
-		}
-
-		for k, v := range data {
-			templateData[k] = v
-		}
-
-		return render(name, templateData)
+func renderPage(w io.Writer, name string, data map[string]any) error {
+	templateData := map[string]any{
+		"Env": mode,
 	}
+
+	for k, v := range data {
+		templateData[k] = v
+	}
+
+	return render(w, name, templateData)
 }
 
-func newRenderFunc(tmpl func() *template.Template) renderFunc {
-	return func(name string, data any) (*[]byte, error) {
-		var buf bytes.Buffer
-		if err := tmpl().ExecuteTemplate(&buf, name, data); err != nil {
-			return nil, fmt.Errorf("render error: %w", err)
-		}
-		bytes := buf.Bytes()
-		return &bytes, nil
+func render(w io.Writer, name string, data any) error {
+	var buf bytes.Buffer
+	if err := tmpl().ExecuteTemplate(&buf, name, data); err != nil {
+		return fmt.Errorf("render error: %w", err)
 	}
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 /* db funcs */
@@ -956,68 +1012,86 @@ type GetTopByPostCountResponse struct {
 }
 
 type getPostParams struct {
-	WebsiteID           int
-	SortByTimestampDesc bool
-	IDs                 []int
-	Limit               int
+	WebsiteID     int
+	IDs           []int
+	Limit         int
+	SortBy        string
+	SortAscending bool
 }
 
-func getPosts(db *sql.DB, params getPostParams) ([]*Post, error) {
-
+func getPosts(db *sql.DB, params getPostParams) ([]Post, error) {
 	if db == nil {
 		return nil, errDBNil
 	}
 
-	promos := []*Post{}
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("SELECT id, website_id, src_url, author_id, description, timestamp FROM posts")
 
-	q := `SELECT id, website_id, src_url, author_id, description, timestamp FROM posts`
-
-	args := []any{}
+	args := make([]interface{}, 0)
 	if params.WebsiteID != 0 || len(params.IDs) > 0 {
-		subQ := []string{}
+		queryBuilder.WriteString(" WHERE ")
+		conditions := make([]string, 0)
+
 		if params.WebsiteID != 0 {
-			subQ = append(subQ, "website_id = ?")
+			conditions = append(conditions, "website_id = ?")
 			args = append(args, params.WebsiteID)
 		}
 
 		if len(params.IDs) > 0 {
-			idQuery := "id IN ("
-			idQuery += strings.Repeat("?, ", len(params.IDs)-1)
-			idQuery += "?)"
-			subQ = append(subQ, idQuery)
+			placeholders := make([]string, len(params.IDs))
+			for i := range placeholders {
+				placeholders[i] = "?"
+			}
+			conditions = append(conditions, fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ",")))
 			for _, id := range params.IDs {
 				args = append(args, id)
 			}
 		}
-		q += " WHERE " + strings.Join(subQ, " AND ")
+
+		queryBuilder.WriteString(strings.Join(conditions, " AND "))
 	}
 
-	if params.SortByTimestampDesc {
-		q += " ORDER BY timestamp DESC"
+	if params.SortBy != "" {
+		direction := "DESC"
+		if params.SortAscending {
+			direction = "ASC"
+		}
+		sortString := fmt.Sprintf(" ORDER BY %s %s", params.SortBy, direction)
+
+		if params.SortBy == "timestamp" {
+			queryBuilder.WriteString(sortString)
+		}
+
+		if params.SortBy == "score" {
+			queryBuilder.WriteString(sortString)
+		}
 	}
 
 	if params.Limit > 0 {
-		q += " Limit ?"
+		queryBuilder.WriteString(" LIMIT ?")
 		args = append(args, params.Limit)
 	}
 
-	rows, err := db.Query(q, args...)
+	rows, err := db.Query(queryBuilder.String(), args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
+	posts := make([]Post, 0, params.Limit)
 	for rows.Next() {
-		var promo Post
-		err = rows.Scan(&promo.ID, &promo.WebsiteID, &promo.SrcURL, &promo.AuthorID, &promo.Description, &promo.Timestamp)
-		if err != nil {
+		var post Post
+		if err := rows.Scan(&post.ID, &post.WebsiteID, &post.SrcURL, &post.AuthorID, &post.Description, &post.Timestamp); err != nil {
 			return nil, err
 		}
-		promos = append(promos, &promo)
+		posts = append(posts, post)
 	}
 
-	return promos, nil
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
+	return posts, nil
 }
 
 /*
@@ -1029,8 +1103,7 @@ CREATE TABLE subscribers (
     signup_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     verification_token TEXT UNIQUE,
     is_verified BOOLEAN DEFAULT 0,
-    preferences TEXT,
-    CONSTRAINT chk_preferences CHECK (json_valid(preferences))
+    preferences TEXT
 );
 */
 
