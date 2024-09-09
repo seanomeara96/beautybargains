@@ -20,9 +20,11 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sashabaranov/go-openai"
+	"golang.org/x/crypto/bcrypt"
 )
 
 /* models begin */
@@ -85,40 +87,6 @@ type Brand struct {
 type getAllBrandsParams struct {
 	Limit, Offset int
 }
-
-func dbGetBrands(db *sql.DB, params getAllBrandsParams) ([]Brand, error) {
-	var q string
-	var rows *sql.Rows
-	var err error
-	if params.Limit == 0 {
-		q = `SELECT id, name, path, score FROM brands`
-		rows, err = db.Query(q)
-	} else {
-		q = `SELECT id, name, path, score FROM brands LIMIT ? OFFSET ?`
-		rows, err = db.Query(q, params.Limit, params.Offset)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("could not query brands: %w", err)
-	}
-	defer rows.Close()
-
-	brands := make([]Brand, 0, params.Limit) // Preallocate slice with capacity if limit is supplied
-	for rows.Next() {
-		var brand Brand
-		if err := rows.Scan(&brand.ID, &brand.Name, &brand.Path, &brand.Score); err != nil {
-			return nil, fmt.Errorf("could not scan brand: %w", err)
-		}
-		brands = append(brands, brand)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows error: %w", err)
-	}
-
-	return brands, nil
-}
-
 type Post struct {
 	WebsiteID   int
 	ID          int
@@ -202,6 +170,7 @@ type EventMeta struct {
 }
 
 type Event struct {
+	ID      int
 	Profile Profile
 	Content Content
 	Meta    EventMeta
@@ -212,6 +181,7 @@ var err error
 var mode Mode
 var port string
 var productionDomain string
+var store *sessions.CookieStore
 
 func processing(ready <-chan time.Time) {
 	fmt.Println("start processing")
@@ -324,6 +294,8 @@ func server() error {
 		mode = Dev
 	}
 
+	store = sessions.NewCookieStore([]byte(os.Getenv(`SESSION_KEY`)))
+
 	productionDomain = os.Getenv("PROD_DOMAIN")
 	if mode == Prod && productionDomain == "" {
 		return errors.New("must supply production domain to run server in prod")
@@ -359,20 +331,15 @@ func server() error {
 	}
 
 	handle := func(path string, fn handleFunc) {
-
 		for i := range globalMiddleware {
 			fn = globalMiddleware[i](fn)
 		}
-
 		r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-
-			err := fn(w, r)
-			if err != nil {
+			if err := fn(w, r); err != nil {
 				err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
 				reportErr(err)
 				return
 			}
-
 		})
 	}
 
@@ -388,6 +355,54 @@ func server() error {
 	*/
 	handle("/", handleGetFeed)
 	handle("GET /store/{websiteName}", handleGetFeed)
+
+	admin := http.NewServeMux()
+
+	adminMiddleware := []func(next handleFunc) handleFunc{
+		func(next handleFunc) handleFunc {
+			return func(w http.ResponseWriter, r *http.Request) error {
+				// do something admin
+
+				session, err := store.Get(r, "admin_session")
+				if err != nil {
+					return err
+				}
+
+				email, found := session.Values["admin_email"]
+				if !found || email != os.Getenv("ADMIN_EMAIL") {
+					w.WriteHeader(http.StatusUnauthorized)
+					return nil
+				}
+
+				return next(w, r.WithContext(context.WithValue(r.Context(), "admin_email", email)))
+			}
+		},
+	}
+
+	adminHandle := func(path string, fn handleFunc) {
+		for i := range globalMiddleware {
+			fn = globalMiddleware[i](fn)
+		}
+
+		for i := range adminMiddleware {
+			fn = adminMiddleware[i](fn)
+		}
+
+		admin.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			if err := fn(w, r); err != nil {
+				err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
+				reportErr(err)
+				return
+			}
+
+		})
+	}
+
+	handle("GET /admin/signin", adminHandleGetSignIn)
+	adminHandle("GET /", adminHandleGetDashboard)
+	adminHandle("POST /signin", adminHandlePostSignIn)
+
+	r.Handle("/admin/", http.StripPrefix("/admin", admin))
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
@@ -579,10 +594,9 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
         p.website_id
     FROM 
         posts p
-    WHERE 
-        p.timestamp > datetime('now', '-3 days')
     ORDER BY 
         p.timestamp DESC
+	LIMIT 6
 	) SELECT 
         op.id,
         op.description,
@@ -721,6 +735,188 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	return renderPage(w, "feedpage", data)
+}
+
+func adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
+
+	rows, err := db.Query("SELECT id, description, author_id, score, src_url, timestamp, website_id FROM posts ORDER BY timestamp DESC")
+	if err != nil {
+		return err
+	}
+
+	var posts []Post
+	for rows.Next() {
+		var post Post
+		if err := rows.Scan(&post.ID, &post.Description, &post.AuthorID, &post.Score, &post.SrcURL, &post.Timestamp, &post.WebsiteID); err != nil {
+			return err
+		}
+		posts = append(posts, post)
+	}
+
+	personas := getPersonas(0, 0)
+
+	events := make([]Event, 0, len(posts))
+	for i := 0; i < len(posts); i++ {
+		e := Event{}
+
+		e.ID = posts[i].ID
+
+		for _, persona := range personas {
+			if persona.ID == posts[i].AuthorID {
+				e.Profile.Username = persona.Name
+				e.Profile.Photo = persona.ProfilePhoto
+			}
+		}
+		//	e.Profile.Username
+
+		// Step 1: Calculate Time Difference
+		timeDiff := time.Since(posts[i].Timestamp)
+
+		// Step 2: Determine Unit (Days or Hours)
+		var unit string
+		var magnitude int
+
+		hours := int(timeDiff.Hours())
+		days := hours / 24
+
+		if days > 0 {
+			unit = "Days"
+			magnitude = days
+		} else {
+			if hours == 1 {
+				unit = "Hour"
+			} else {
+				unit = "Hours"
+			}
+			magnitude = hours
+		}
+
+		// Step 3: Format String
+		e.Content.TimeElapsed = fmt.Sprintf("%d %s ago", magnitude, unit)
+		e.Meta.Src = &posts[i].SrcURL
+
+		if posts[i].Link != "" {
+			e.Meta.CTALink = &posts[i].Link
+		}
+
+		pattern := regexp.MustCompile(`#(\w+)`)
+
+		extraText := posts[i].Description
+
+		matches := pattern.FindAllStringSubmatch(extraText, -1)
+
+		for _, match := range matches {
+			phrase := strings.ToLower(match[1])
+			extraText = strings.Replace(extraText, match[0], fmt.Sprintf("<a class='text-blue-500' href='?hashtag=%s'>%s</a>", phrase, match[0]), 1)
+		}
+
+		extraTextHTML := template.HTML(extraText)
+
+		e.Content.ExtraText = &extraTextHTML
+		website, err := getWebsiteByID(posts[i].WebsiteID)
+		if err != nil {
+			return fmt.Errorf("could not get website by id %d. %v", posts[i].WebsiteID, err)
+		}
+		e.Content.Summary = fmt.Sprintf("posted an update about %s", website.WebsiteName)
+		// e.Content.ExtraImages = nil
+		e.Content.ExtraImages = &[]ExtraImage{{posts[i].SrcURL, ""}}
+		events = append(events, e)
+	}
+
+	limit := 5
+	q := `SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT ?`
+	rows, err = db.Query(q, limit)
+	if err != nil {
+		return fmt.Errorf("could not count hashtag mentions in db: %w", err)
+	}
+	defer rows.Close()
+
+	top := make([]GetTopByPostCountResponse, 0, limit)
+	for rows.Next() {
+		var row GetTopByPostCountResponse
+		if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
+			return err
+		}
+		top = append(top, row)
+	} // should expect an array like {hashtag, postcount}
+
+	var trendingHashtags []Trending
+	for _, row := range top {
+		hashtag, err := getHashtagByID(db, row.HashtagID)
+		if err != nil {
+			return fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
+		}
+		trendingHashtags = append(trendingHashtags, Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
+	}
+
+	data := map[string]any{
+		"Events":     events,
+		"Websites":   getWebsites(0, 0),
+		"Trending":   trendingHashtags,
+		"Categories": getCategories(0, 0),
+	}
+
+	return renderPage(w, "admindashboard", data)
+}
+
+func adminHandleGetSignIn(w http.ResponseWriter, r *http.Request) error {
+	return renderPage(w, "adminsignin", nil)
+}
+
+func adminHandleGetSignOut(w http.ResponseWriter, r *http.Request) error {
+	session, err := store.Get(r, "admin_session")
+	if err != nil {
+		return err
+	}
+
+	if session.Values["admin_email"] == nil || session.Values["admin_email"] != os.Getenv("ADMIN_EMAIL") {
+		return errors.New("signout called but not logged in")
+	}
+
+	session.Values["admin_email"] = ""
+	if err := session.Save(r, w); err != nil {
+		return err
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+	return nil
+
+}
+
+func adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return err
+	}
+
+	if os.Getenv("ADMIN_EMAIL") == "" || os.Getenv("HASHED_PASSWORD") == "" {
+		return fmt.Errorf("Either admin_email or hashed_password is not set in env")
+	}
+
+	email, password := r.Form.Get("email"), r.Form.Get("password")
+
+	if email != os.Getenv("ADMIN_EMAIL") {
+		log.Println("incorrect admin email supplied")
+		return renderPage(w, "adminsignin", nil)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(os.Getenv("HASHED_PASSWORD")), []byte(password)); err != nil {
+		log.Printf("incorrect password supplied %v", err)
+		return renderPage(w, "adminsignin", nil)
+	}
+
+	session, err := store.Get(r, "admin_session")
+	if err != nil {
+		return err
+	}
+
+	session.Values["admin_email"] = email
+
+	if err := store.Save(r, w, session); err != nil {
+		return err
+	}
+
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	return nil
 }
 
 func handlePostSubscribe(w http.ResponseWriter, r *http.Request) error {
@@ -1341,3 +1537,36 @@ func generateOfferDescription(websiteName string, banner BannerData) (string, er
 }
 
 /* chat service ends */
+
+func dbGetBrands(db *sql.DB, params getAllBrandsParams) ([]Brand, error) {
+	var q string
+	var rows *sql.Rows
+	var err error
+	if params.Limit == 0 {
+		q = `SELECT id, name, path, score FROM brands`
+		rows, err = db.Query(q)
+	} else {
+		q = `SELECT id, name, path, score FROM brands LIMIT ? OFFSET ?`
+		rows, err = db.Query(q, params.Limit, params.Offset)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("could not query brands: %w", err)
+	}
+	defer rows.Close()
+
+	brands := make([]Brand, 0, params.Limit) // Preallocate slice with capacity if limit is supplied
+	for rows.Next() {
+		var brand Brand
+		if err := rows.Scan(&brand.ID, &brand.Name, &brand.Path, &brand.Score); err != nil {
+			return nil, fmt.Errorf("could not scan brand: %w", err)
+		}
+		brands = append(brands, brand)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return brands, nil
+}
