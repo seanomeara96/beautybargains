@@ -617,18 +617,24 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	var posts []Post
 	for rows.Next() {
 		var post Post
-		if err := rows.Scan(&post.ID, &post.Description, &post.AuthorID, &post.Score, &post.SrcURL, &post.Timestamp, &post.WebsiteID); err != nil {
+		if err := rows.Scan(
+			&post.ID,
+			&post.Description,
+			&post.AuthorID,
+			&post.Score,
+			&post.SrcURL,
+			&post.Timestamp,
+			&post.WebsiteID,
+		); err != nil {
 			return err
 		}
 		posts = append(posts, post)
 	}
 
-	personas := getPersonas(0, 0)
-
-	events := []Event{}
+	events := make([]Event, 0, len(posts))
 	for i := 0; i < len(posts); i++ {
 		e := Event{}
-		for _, persona := range personas {
+		for _, persona := range getPersonas(0, 0) {
 			if persona.ID == posts[i].AuthorID {
 				e.Profile.Username = persona.Name
 				e.Profile.Photo = persona.ProfilePhoto
