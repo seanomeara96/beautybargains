@@ -183,7 +183,7 @@ var port string
 var productionDomain string
 var store *sessions.CookieStore
 
-func processing(ready <-chan time.Time) {
+func process() {
 	fmt.Println("start processing")
 	if err := extractOffersFromBanners(); err != nil {
 		reportErr(err)
@@ -192,8 +192,6 @@ func processing(ready <-chan time.Time) {
 		reportErr(err)
 	}
 	fmt.Println("finished processing")
-	<-ready
-	processing(ready)
 }
 
 /* models end */
@@ -221,8 +219,14 @@ func main() {
 	skip := *_skip
 
 	if !skip {
-		ticker := time.NewTicker(time.Hour)
-		go processing(ticker.C)
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			process()
+			for {
+				<-ticker.C
+				process()
+			}
+		}()
 	} else {
 		log.Println("skipping banner extractions and hashtag process")
 	}
@@ -321,7 +325,8 @@ func server() error {
 		http.ServeFile(w, r, "./static/sitemap.xml")
 	})
 
-	globalMiddleware := []func(next handleFunc) handleFunc{
+	type middleware func(next handleFunc) handleFunc
+	globalMiddleware := []middleware{
 		func(next handleFunc) handleFunc {
 			return (func(w http.ResponseWriter, r *http.Request) error {
 				log.Printf("%s => %s", r.Method, r.URL.Path)
@@ -577,13 +582,9 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	var getPostParams getPostParams
-	getPostParams.IDs = postIDs
-	getPostParams.SortBy = "score"
-	getPostParams.WebsiteID = website.WebsiteID
-	getPostParams.Limit = 6
-
-	rows, err := db.Query(`WITH orderedPosts AS (
+	args := []any{}
+	var q strings.Builder
+	q.WriteString(`WITH orderedPosts AS (
 	SELECT 
         p.id,
         p.description,
@@ -593,8 +594,24 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
         p.timestamp,
         p.website_id
     FROM 
-        posts p
-    ORDER BY 
+        posts p `)
+
+	if len(postIDs) > 0 {
+		q.WriteString(`WHERE p.id IN (`)
+		for i, id := range postIDs {
+			if i > 0 {
+				q.WriteString(", ")
+			}
+			q.WriteString("?")
+			args = append(args, id)
+		}
+		q.WriteString(") ")
+	} else if website.WebsiteID != 0 {
+		q.WriteString(`WHERE website_id = ? `)
+		args = append(args, website.WebsiteID)
+	}
+
+	q.WriteString(`ORDER BY 
         p.timestamp DESC
 	LIMIT 6
 	) SELECT 
@@ -611,6 +628,8 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		score DESC
 	LIMIT 6
 	`)
+
+	rows, err := db.Query(q.String(), args...)
 	if err != nil {
 		return err
 	}
@@ -696,15 +715,13 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		events = append(events, e)
 	}
 
-	limit := 5
-	q := `SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT ?`
-	rows, err = db.Query(q, limit)
+	rows, err = db.Query(`SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT 5`)
 	if err != nil {
 		return fmt.Errorf("could not count hashtag mentions in db: %w", err)
 	}
 	defer rows.Close()
 
-	top := make([]GetTopByPostCountResponse, 0, limit)
+	top := make([]GetTopByPostCountResponse, 0, 5)
 	for rows.Next() {
 		var row GetTopByPostCountResponse
 		if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
@@ -1500,7 +1517,7 @@ func generateOfferDescription(websiteName string, banner BannerData) (string, er
 
 	c := openai.NewClient(key)
 
-	model := openai.GPT4VisionPreview
+	model := openai.GPT4o
 
 	content := []openai.ChatMessagePart{
 		{
