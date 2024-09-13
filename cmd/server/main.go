@@ -30,6 +30,7 @@ import (
 /* models begin */
 type Mode string
 
+const adminEmailContextKey = "admin_email"
 const (
 	Dev  Mode = "dev"
 	Prod Mode = "prod"
@@ -283,7 +284,6 @@ func tmpl() *template.Template {
 }
 
 func reportErr(err error) {
-
 	log.Print(err)
 }
 
@@ -379,7 +379,7 @@ func server() error {
 					return nil
 				}
 
-				return next(w, r.WithContext(context.WithValue(r.Context(), "admin_email", email)))
+				return next(w, r.WithContext(context.WithValue(r.Context(), adminEmailContextKey, email)))
 			}
 		},
 	}
@@ -1300,7 +1300,14 @@ func getPosts(db *sql.DB, params getPostParams) ([]Post, error) {
 	posts := make([]Post, 0, params.Limit)
 	for rows.Next() {
 		var post Post
-		if err := rows.Scan(&post.ID, &post.WebsiteID, &post.SrcURL, &post.AuthorID, &post.Description, &post.Timestamp); err != nil {
+		if err := rows.Scan(
+			&post.ID,
+			&post.WebsiteID,
+			&post.SrcURL,
+			&post.AuthorID,
+			&post.Description,
+			&post.Timestamp,
+		); err != nil {
 			return nil, err
 		}
 		posts = append(posts, post)
