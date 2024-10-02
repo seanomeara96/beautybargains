@@ -16,5 +16,7 @@ require (
 require (
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
+	github.com/gosimple/slug v1.14.0 // indirect
+	github.com/gosimple/unidecode v1.0.1 // indirect
 	golang.org/x/net v0.28.0 // indirect
 )
