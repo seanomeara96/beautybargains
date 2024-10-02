@@ -23,7 +23,7 @@
                         <td class="px-6 py-4">{{.Email}}</td>
                         <td class="px-6 py-4">{{if .FullName.Valid}}{{.FullName.String}}{{else}}<span class="text-gray-500">N/A</span>{{end}}</td>
                         <td class="px-6 py-4 text-center">{{if .Consent}}✔️{{else}}❌{{end}}</td>
-                        <td class="px-6 py-4">{{.SignupDate}}</td>
+                        <td class="px-6 py-4">{{.SignupDate.Format "01-01-2006"}}</td>
                         <td class="px-6 py-4">{{if .VerificationToken.Valid}}{{.VerificationToken.String}}{{else}}<span class="text-gray-500">N/A</span>{{end}}</td>
                         <td class="px-6 py-4 text-center">{{if .IsVerified}}✔️{{else}}❌{{end}}</td>
                         <td class="px-6 py-4">{{if .Preferences.Valid}}{{.Preferences.String}}{{else}}<span class="text-gray-500">N/A</span>{{end}}</td>
