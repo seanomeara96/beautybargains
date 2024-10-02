@@ -29,8 +29,9 @@ import (
 
 /* models begin */
 type Mode string
+type contextKey string
 
-const adminEmailContextKey = "admin_email"
+const adminEmailContextKey contextKey = "admin_email"
 const (
 	Dev  Mode = "dev"
 	Prod Mode = "prod"
@@ -56,7 +57,7 @@ var websites = []Website{
 	{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 8, "www.beautyfeatures.ie_.png"},
 	{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8, "www.lookfantastic.ie_.png"},
 	{3, "Millies", "https://millies.ie", "IE", 9, "millies.ie_.png"},
-	{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 3, "www.mccauley.ie_.png"},
+	{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 1, "www.mccauley.ie_.png"},
 }
 
 type Category struct {
@@ -85,9 +86,6 @@ type Brand struct {
 	Score float64
 }
 
-type getAllBrandsParams struct {
-	Limit, Offset int
-}
 type Post struct {
 	WebsiteID   int
 	ID          int
@@ -912,7 +910,7 @@ func adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	if os.Getenv("ADMIN_EMAIL") == "" || os.Getenv("HASHED_PASSWORD") == "" {
-		return fmt.Errorf("Either admin_email or hashed_password is not set in env")
+		return fmt.Errorf("either admin_email or hashed_password is not set in env")
 	}
 
 	email, password := r.Form.Get("email"), r.Form.Get("password")
@@ -1567,6 +1565,10 @@ func generateOfferDescription(websiteName string, banner BannerData) (string, er
 }
 
 /* chat service ends */
+
+type getAllBrandsParams struct {
+	Limit, Offset int
+}
 
 func dbGetBrands(db *sql.DB, params getAllBrandsParams) ([]Brand, error) {
 	var q string
