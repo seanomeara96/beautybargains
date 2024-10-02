@@ -999,7 +999,7 @@ func adminHandlePostEditPost(w http.ResponseWriter, r *http.Request) error {
 		postID,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to update post", http.StatusInternalServerError)
+		return fmt.Errorf("unable to update post %d", http.StatusInternalServerError)
 	}
 
 	// Redirect to the posts list or success page
