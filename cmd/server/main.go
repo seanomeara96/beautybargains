@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,17 @@ type Category struct {
 	Name string
 }
 
+type Subscriber struct {
+	ID                int            `json:"id"`                              // Primary key, auto-increment
+	Email             string         `json:"email" validate:"required,email"` // Email, unique, not null
+	FullName          sql.NullString `json:"full_name"`                       // Full name, can be null
+	Consent           bool           `json:"consent" validate:"required"`     // Consent, 0 or 1, not null
+	SignupDate        time.Time      `json:"signup_date"`                     // Signup date, defaults to current timestamp
+	VerificationToken sql.NullString `json:"verification_token"`              // Unique verification token
+	IsVerified        bool           `json:"is_verified" default:"false"`     // Verification status, defaults to false (0)
+	Preferences       sql.NullString `json:"preferences"`                     // User preferences, can be null
+}
+
 var categories = []Category{
 	{"Haircare"},
 	{"Skincare"},
@@ -91,7 +103,7 @@ type Post struct {
 	ID          int
 	Description string
 	SrcURL      string
-	Link        string
+	Link        sql.NullString
 	Timestamp   time.Time
 	AuthorID    int // supposed to correspond with a persona id
 	Score       float64
@@ -115,6 +127,7 @@ type Trending struct {
 }
 
 type handleFunc func(w http.ResponseWriter, r *http.Request) error
+type middleware func(next handleFunc) handleFunc
 
 type MenuItem struct {
 	Path string
@@ -285,6 +298,47 @@ func reportErr(err error) {
 	log.Print(err)
 }
 
+func mustBeAdmin(next handleFunc) handleFunc {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		// do something admin
+
+		session, err := store.Get(r, "admin_session")
+		if err != nil {
+			return err
+		}
+
+		email, found := session.Values["admin_email"]
+		if !found || email != os.Getenv("ADMIN_EMAIL") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return nil
+		}
+
+		return next(w, r.WithContext(context.WithValue(r.Context(), adminEmailContextKey, email)))
+	}
+}
+
+func pathLogger(next handleFunc) handleFunc {
+	return (func(w http.ResponseWriter, r *http.Request) error {
+		log.Printf("%s => %s", r.Method, r.URL.Path)
+		return next(w, r)
+	})
+}
+
+func newHandleFunc(r *http.ServeMux, globalMiddleware []middleware) func(path string, fn handleFunc) {
+	return func(path string, fn handleFunc) {
+		for i := range globalMiddleware {
+			fn = globalMiddleware[i](fn)
+		}
+		r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			if err := fn(w, r); err != nil {
+				err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
+				reportErr(err)
+				return
+			}
+		})
+	}
+}
+
 func server() error {
 
 	if port == "" {
@@ -323,89 +377,23 @@ func server() error {
 		http.ServeFile(w, r, "./static/sitemap.xml")
 	})
 
-	type middleware func(next handleFunc) handleFunc
-	globalMiddleware := []middleware{
-		func(next handleFunc) handleFunc {
-			return (func(w http.ResponseWriter, r *http.Request) error {
-				log.Printf("%s => %s", r.Method, r.URL.Path)
-				return next(w, r)
-			})
-		},
-	}
+	globalMiddleware := []middleware{pathLogger}
 
-	handle := func(path string, fn handleFunc) {
-		for i := range globalMiddleware {
-			fn = globalMiddleware[i](fn)
-		}
-		r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			if err := fn(w, r); err != nil {
-				err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
-				reportErr(err)
-				return
-			}
-		})
-	}
+	handle := newHandleFunc(r, globalMiddleware)
 
-	/*
-		Promotions Handlers
-	*/
+	handle("/", handleGetFeed)
+	handle("GET /store/{websiteName}", handleGetFeed)
 	handle("POST /subscribe", handlePostSubscribe)
 	handle("GET /subscribe", handleGetSubscribePage)
 	handle("GET /subscribe/verify", handleGetVerifySubscription)
 
-	/*
-		Home / Index Handler
-	*/
-	handle("/", handleGetFeed)
-	handle("GET /store/{websiteName}", handleGetFeed)
-
-	admin := http.NewServeMux()
-
-	adminMiddleware := []func(next handleFunc) handleFunc{
-		func(next handleFunc) handleFunc {
-			return func(w http.ResponseWriter, r *http.Request) error {
-				// do something admin
-
-				session, err := store.Get(r, "admin_session")
-				if err != nil {
-					return err
-				}
-
-				email, found := session.Values["admin_email"]
-				if !found || email != os.Getenv("ADMIN_EMAIL") {
-					w.WriteHeader(http.StatusUnauthorized)
-					return nil
-				}
-
-				return next(w, r.WithContext(context.WithValue(r.Context(), adminEmailContextKey, email)))
-			}
-		},
-	}
-
-	adminHandle := func(path string, fn handleFunc) {
-		for i := range globalMiddleware {
-			fn = globalMiddleware[i](fn)
-		}
-
-		for i := range adminMiddleware {
-			fn = adminMiddleware[i](fn)
-		}
-
-		admin.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			if err := fn(w, r); err != nil {
-				err = fmt.Errorf("error at %s %s => %v", r.Method, r.URL.Path, err)
-				reportErr(err)
-				return
-			}
-
-		})
-	}
-
 	handle("GET /admin/signin", adminHandleGetSignIn)
-	adminHandle("GET /", adminHandleGetDashboard)
-	adminHandle("POST /signin", adminHandlePostSignIn)
-
-	r.Handle("/admin/", http.StripPrefix("/admin", admin))
+	handle("POST /admin/signin", adminHandlePostSignIn)
+	handle("GET /admin/signout", adminHandleGetSignOut)
+	handle("GET /admin", mustBeAdmin(adminHandleGetDashboard))
+	handle("GET /admin/manage/subscribers", mustBeAdmin(adminhandleGetSubscribers))
+	handle("GET /admin/events/edit/{id}", mustBeAdmin(adminHandleEditPostPage))
+	handle("POST /admin/events/edit/{id}", mustBeAdmin(adminHandlePostEditPost))
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
@@ -685,8 +673,8 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		e.Content.TimeElapsed = fmt.Sprintf("%d %s ago", magnitude, unit)
 		e.Meta.Src = &posts[i].SrcURL
 
-		if posts[i].Link != "" {
-			e.Meta.CTALink = &posts[i].Link
+		if posts[i].Link.Valid {
+			e.Meta.CTALink = &posts[i].Link.String
 		}
 
 		pattern := regexp.MustCompile(`#(\w+)`)
@@ -816,8 +804,8 @@ func adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
 		e.Content.TimeElapsed = fmt.Sprintf("%d %s ago", magnitude, unit)
 		e.Meta.Src = &posts[i].SrcURL
 
-		if posts[i].Link != "" {
-			e.Meta.CTALink = &posts[i].Link
+		if posts[i].Link.Valid {
+			e.Meta.CTALink = &posts[i].Link.String
 		}
 
 		pattern := regexp.MustCompile(`#(\w+)`)
@@ -875,6 +863,7 @@ func adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
 		"Websites":   getWebsites(0, 0),
 		"Trending":   trendingHashtags,
 		"Categories": getCategories(0, 0),
+		"Admin":      true,
 	}
 
 	return renderPage(w, "admindashboard", data)
@@ -882,6 +871,140 @@ func adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
 
 func adminHandleGetSignIn(w http.ResponseWriter, r *http.Request) error {
 	return renderPage(w, "adminsignin", nil)
+}
+
+func adminhandleGetSubscribers(w http.ResponseWriter, r *http.Request) error {
+
+	var subscribers []Subscriber
+
+	rows, err := db.Query(`SELECT 
+		id, 
+		email, 
+		full_name, 
+		consent, 
+		signup_date, 
+		verification_token, 
+		is_verified, 
+		preferences
+	FROM 
+		subscribers`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var s Subscriber
+		if err := rows.Scan(
+			&s.ID,
+			&s.Email,
+			&s.FullName,
+			&s.Consent,
+			&s.SignupDate,
+			&s.VerificationToken,
+			&s.IsVerified,
+			&s.Preferences,
+		); err != nil {
+			return err
+		}
+		subscribers = append(subscribers, s)
+	}
+
+	return renderPage(w, "adminsubscribers", map[string]any{
+		"Subscribers": subscribers,
+	})
+}
+
+// Handler to load the post for editing
+func adminHandleEditPostPage(w http.ResponseWriter, r *http.Request) error {
+	// Parse post ID from URL
+	postIDStr := r.PathValue("id")
+	postID, err := strconv.Atoi(postIDStr)
+	if err != nil {
+		return err
+	}
+
+	// Fetch post from the database
+	var post Post
+	err = db.QueryRow(`SELECT website_id, id, description, src_url, link, timestamp, author_id, score 
+	                   FROM posts WHERE id = ?`, postID).
+		Scan(&post.WebsiteID, &post.ID, &post.Description, &post.SrcURL, &post.Link, &post.Timestamp, &post.AuthorID, &post.Score)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("Post not found %d", http.StatusNotFound)
+		}
+		return err
+	}
+
+	// Render the edit post page
+
+	err = renderPage(w, "admineditpost", map[string]any{
+		"Post": post,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Handler to update the post
+func adminHandlePostEditPost(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		return fmt.Errorf("invalid request method %d", http.StatusMethodNotAllowed)
+	}
+
+	// Parse form values
+	postIDStr := r.PathValue("id")
+	postID, err := strconv.Atoi(postIDStr)
+	if err != nil {
+		return fmt.Errorf("invalid Post ID %d", http.StatusBadRequest)
+
+	}
+
+	websiteID, err := strconv.Atoi(r.FormValue("websiteID"))
+	if err != nil {
+		return fmt.Errorf("invalid Website ID %d", http.StatusBadRequest)
+	}
+
+	description := r.FormValue("description")
+	srcURL := r.FormValue("srcURL")
+	link := r.FormValue("link")
+	authorID, err := strconv.Atoi(r.FormValue("authorID"))
+	if err != nil {
+		return fmt.Errorf("invalid Author ID %d", http.StatusBadRequest)
+	}
+	score, err := strconv.ParseFloat(r.FormValue("score"), 64)
+	if err != nil {
+		return fmt.Errorf("invalid Score %d", http.StatusBadRequest)
+	}
+
+	// Update post in the database
+	_, err = db.Exec(`UPDATE posts 
+		SET 
+			website_id = ?, 
+			description = ?, 
+			src_url = ?, 
+			link = ?, 
+			author_id = ?, 
+			score = ?
+	    WHERE 
+			id = ?`,
+		websiteID,
+		description,
+		srcURL,
+		link,
+		authorID,
+		score,
+		postID,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to update post", http.StatusInternalServerError)
+	}
+
+	// Redirect to the posts list or success page
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	return nil
 }
 
 func adminHandleGetSignOut(w http.ResponseWriter, r *http.Request) error {
@@ -1244,7 +1367,7 @@ func getPosts(db *sql.DB, params getPostParams) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("SELECT id, website_id, src_url, author_id, description, timestamp FROM posts")
 
-	args := make([]interface{}, 0)
+	args := make([]any, 0)
 	if params.WebsiteID != 0 || len(params.IDs) > 0 {
 		queryBuilder.WriteString(" WHERE ")
 		conditions := make([]string, 0)
@@ -1317,19 +1440,6 @@ func getPosts(db *sql.DB, params getPostParams) ([]Post, error) {
 
 	return posts, nil
 }
-
-/*
-CREATE TABLE subscribers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
-    full_name TEXT,
-    consent BOOLEAN NOT NULL CHECK (consent IN (0, 1)),
-    signup_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    verification_token TEXT UNIQUE,
-    is_verified BOOLEAN DEFAULT 0,
-    preferences TEXT
-);
-*/
 
 /* website funcs*/
 

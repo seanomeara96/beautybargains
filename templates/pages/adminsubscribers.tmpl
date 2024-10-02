@@ -1,0 +1,41 @@
+{{ define "adminsubscribers" }}
+    {{ template "header" . }}
+
+    <!-- Subscribers Table -->
+    <div class="max-w-7xl mx-auto my-8 bg-white shadow-md rounded-lg overflow-hidden">
+        <table class="min-w-full bg-white">
+            <thead class="bg-gray-800 text-white">
+                <tr>
+                    <th class="w-1/12 px-6 py-3 text-left">ID</th>
+                    <th class="w-2/12 px-6 py-3 text-left">Email</th>
+                    <th class="w-2/12 px-6 py-3 text-left">Full Name</th>
+                    <th class="w-1/12 px-6 py-3 text-center">Consent</th>
+                    <th class="w-2/12 px-6 py-3 text-left">Signup Date</th>
+                    <th class="w-2/12 px-6 py-3 text-left">Verification Token</th>
+                    <th class="w-1/12 px-6 py-3 text-center">Verified</th>
+                    <th class="w-1/12 px-6 py-3 text-left">Preferences</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Subscribers}}
+                    <tr class="border-t border-gray-300">
+                        <td class="px-6 py-4">{{.ID}}</td>
+                        <td class="px-6 py-4">{{.Email}}</td>
+                        <td class="px-6 py-4">{{if .FullName.Valid}}{{.FullName.String}}{{else}}<span class="text-gray-500">N/A</span>{{end}}</td>
+                        <td class="px-6 py-4 text-center">{{if .Consent}}✔️{{else}}❌{{end}}</td>
+                        <td class="px-6 py-4">{{.SignupDate}}</td>
+                        <td class="px-6 py-4">{{if .VerificationToken.Valid}}{{.VerificationToken.String}}{{else}}<span class="text-gray-500">N/A</span>{{end}}</td>
+                        <td class="px-6 py-4 text-center">{{if .IsVerified}}✔️{{else}}❌{{end}}</td>
+                        <td class="px-6 py-4">{{if .Preferences.Valid}}{{.Preferences.String}}{{else}}<span class="text-gray-500">N/A</span>{{end}}</td>
+                    </tr>
+                {{else}}
+                    <tr>
+                        <td colspan="8" class="px-6 py-4 text-center text-gray-500">No subscribers found</td>
+                    </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    {{ template "footer" . }}
+{{ end }}
