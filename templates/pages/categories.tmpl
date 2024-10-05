@@ -1,0 +1,18 @@
+{{ define "categoriespage" }}
+    {{ template "header" . }}
+
+
+    {{ range .Categories }}
+        <div class="mb-4 p-4 bg-white shadow-md rounded-lg">
+            <a href="/categories/{{ .ID }}" class="text-lg font-semibold text-blue-600 hover:text-blue-800">{{ .Name }}</a>
+            <p class="text-sm text-gray-600">ID: {{ .ID }}</p>
+            {{ if ne .ParentID 0 }}
+                <p class="text-sm text-gray-600">Parent ID: {{ .ParentID }}</p>
+            {{ end }}
+            <p class="text-sm text-gray-600">URL: {{ .URL }}</p>
+        </div>
+    {{ end }}
+
+
+    {{ template "footer" . }}
+{{ end }}

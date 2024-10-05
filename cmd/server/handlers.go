@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"fmt"
 	"html/template"
 	"log"
@@ -9,9 +10,19 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/gorilla/sessions"
 )
 
-func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
+type Handler struct {
+	db      *sql.DB
+	store   *sessions.CookieStore
+	mode    Mode
+	domain  string
+	service *Service
+}
+
+func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	websiteName := r.PathValue("websiteName")
 	hashtagQuery := r.URL.Query().Get("hashtag")
 
@@ -25,12 +36,12 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 
 	var postIDs []int
 	if hashtagQuery != "" {
-		hashtagID, err := getHashtagIDByPhrase(db, hashtagQuery)
+		hashtagID, err := h.service.getHashtagIDByPhrase(hashtagQuery)
 		if err != nil {
 			return fmt.Errorf("could not get hashtag id in get by phrase. %w", err)
 		}
 
-		postIdRows, err := db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
+		postIdRows, err := h.db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
 		if err != nil {
 			return fmt.Errorf("error getting post_ids from post_hashtags db. %w", err)
 		}
@@ -49,16 +60,16 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	args := []any{}
 	var q strings.Builder
 	q.WriteString(`WITH orderedPosts AS (
-	SELECT 
-        p.id,
-        p.description,
+	SELECT
+								p.id,
+								p.description,
 		p.author_id,
 		p.Score,
-        p.src_url,
-        p.timestamp,
-        p.website_id
-    FROM 
-        posts p `)
+								p.src_url,
+								p.timestamp,
+								p.website_id
+				FROM
+								posts p `)
 
 	if len(postIDs) > 0 {
 		q.WriteString(`WHERE p.id IN (`)
@@ -75,25 +86,25 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		args = append(args, website.WebsiteID)
 	}
 
-	q.WriteString(`ORDER BY 
-        p.timestamp DESC
+	q.WriteString(`ORDER BY
+								p.timestamp DESC
 	LIMIT 6
-	) SELECT 
-        op.id,
-        op.description,
+	) SELECT
+								op.id,
+								op.description,
 		op.author_id,
 		op.Score,
-        op.src_url,
-        op.timestamp,
-        op.website_id
-    FROM 
-        orderedPosts op
+								op.src_url,
+								op.timestamp,
+								op.website_id
+				FROM
+								orderedPosts op
 	ORDER BY
 		score DESC
 	LIMIT 6
 	`)
 
-	rows, err := db.Query(q.String(), args...)
+	rows, err := h.db.Query(q.String(), args...)
 	if err != nil {
 		return err
 	}
@@ -179,7 +190,7 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		events = append(events, e)
 	}
 
-	rows, err = db.Query(`SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT 5`)
+	rows, err = h.db.Query(`SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT 5`)
 	if err != nil {
 		return fmt.Errorf("could not count hashtag mentions in db: %w", err)
 	}
@@ -196,7 +207,7 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 
 	var trendingHashtags []*Trending
 	for _, row := range top {
-		hashtag, err := getHashtagByID(db, row.HashtagID)
+		hashtag, err := h.service.getHashtagByID(row.HashtagID)
 		if err != nil {
 			return fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
 		}
@@ -224,7 +235,14 @@ func handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	return renderPage(w, "feedpage", data)
 }
 
-func handlePostSubscribe(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) handleGetCategories(w http.ResponseWriter, r *http.Request) error {
+	categories := getCategories(0, 0)
+	return renderPage(w, "categoriespage", map[string]any{
+		"Categories": categories,
+	})
+}
+
+func (h *Handler) handlePostSubscribe(w http.ResponseWriter, r *http.Request) error {
 	if err := r.ParseForm(); err != nil {
 		return fmt.Errorf("could not parse form: %w", err)
 	}
@@ -238,7 +256,7 @@ func handlePostSubscribe(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	q := `INSERT INTO subscribers(email, consent) VALUES (?, 1)`
-	if _, err := db.Exec(q, email); err != nil {
+	if _, err := h.db.Exec(q, email); err != nil {
 		return fmt.Errorf("could not insert email into subscibers table => %w", err)
 	}
 
@@ -260,16 +278,11 @@ func handlePostSubscribe(w http.ResponseWriter, r *http.Request) error {
 	// TODO do one insert with both email and verification token
 
 	setVerificationTokenQuery := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
-	if _, err := db.Exec(setVerificationTokenQuery, token, email); err != nil {
+	if _, err := h.db.Exec(setVerificationTokenQuery, token, email); err != nil {
 		return fmt.Errorf("could not add verification token to user by email => %w", err)
 	}
 
-	domain := "http://localhost:" + port
-	if mode == Prod {
-		domain = productionDomain
-	}
-
-	log.Printf("Verify subscription at %s/subscribe/verify?token=%s", domain, token)
+	log.Printf("Verify subscription at %s/subscribe/verify?token=%s", h.domain, token)
 	/* TODO implement this in production. For now log to console
 	err = s.SendVerificationToken(email, token)
 		if err != nil {
@@ -286,21 +299,21 @@ func handlePostSubscribe(w http.ResponseWriter, r *http.Request) error {
 
 }
 
-func handleGetSubscribePage(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) handleGetSubscribePage(w http.ResponseWriter, r *http.Request) error {
 	return renderPage(w, "subscribepage", map[string]any{})
 }
 
-func handleGetVerifySubscription(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) handleGetVerifySubscription(w http.ResponseWriter, r *http.Request) error {
 	vars := r.URL.Query()
 	token := vars.Get("token")
 
 	if token == "" {
 		// ("Warning: subscription verification attempted with no token")
-		return handleGetFeed(w, r)
+		return h.handleGetFeed(w, r)
 	}
 
 	q := `UPDATE subscribers SET is_verified = 1 WHERE verification_token = ?`
-	_, err := db.Exec(q, token)
+	_, err := h.db.Exec(q, token)
 	if err != nil {
 		return fmt.Errorf("could not verify subscription via verification token => %w", err)
 	}

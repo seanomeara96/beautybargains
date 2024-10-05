@@ -7,11 +7,11 @@ import (
 	"os"
 )
 
-func mustBeAdmin(next handleFunc) handleFunc {
+func (h *Handler) mustBeAdmin(next handleFunc) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		// do something admin
 
-		session, err := store.Get(r, "admin_session")
+		session, err := h.store.Get(r, "admin_session")
 		if err != nil {
 			return err
 		}
@@ -26,7 +26,7 @@ func mustBeAdmin(next handleFunc) handleFunc {
 	}
 }
 
-func pathLogger(next handleFunc) handleFunc {
+func (h *Handler) pathLogger(next handleFunc) handleFunc {
 	return (func(w http.ResponseWriter, r *http.Request) error {
 		log.Printf("%s => %s", r.Method, r.URL.Path)
 		return next(w, r)

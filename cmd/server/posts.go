@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 )
@@ -19,8 +18,8 @@ type getPostParams struct {
 	SortAscending bool
 }
 
-func getPosts(db *sql.DB, params getPostParams) ([]Post, error) {
-	if db == nil {
+func (s *Service) getPosts(params getPostParams) ([]Post, error) {
+	if s.db == nil {
 		return nil, errDBNil
 	}
 
@@ -72,7 +71,7 @@ func getPosts(db *sql.DB, params getPostParams) ([]Post, error) {
 		args = append(args, params.Limit)
 	}
 
-	rows, err := db.Query(queryBuilder.String(), args...)
+	rows, err := s.db.Query(queryBuilder.String(), args...)
 	if err != nil {
 		return nil, err
 	}

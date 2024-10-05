@@ -16,9 +16,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
 
-	rows, err := db.Query("SELECT id, description, author_id, score, src_url, timestamp, website_id FROM posts ORDER BY timestamp DESC")
+	rows, err := h.db.Query("SELECT id, description, author_id, score, src_url, timestamp, website_id FROM posts ORDER BY timestamp DESC")
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
 
 	limit := 5
 	q := `SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT ?`
-	rows, err = db.Query(q, limit)
+	rows, err = h.db.Query(q, limit)
 	if err != nil {
 		return fmt.Errorf("could not count hashtag mentions in db: %w", err)
 	}
@@ -121,7 +121,7 @@ func adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
 
 	var trendingHashtags []Trending
 	for _, row := range top {
-		hashtag, err := getHashtagByID(db, row.HashtagID)
+		hashtag, err := h.service.getHashtagByID(row.HashtagID)
 		if err != nil {
 			return fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
 		}
@@ -139,15 +139,15 @@ func adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
 	return renderPage(w, "admindashboard", data)
 }
 
-func adminHandleGetSignIn(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandleGetSignIn(w http.ResponseWriter, r *http.Request) error {
 	return renderPage(w, "adminsignin", nil)
 }
 
-func adminhandleGetSubscribers(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminhandleGetSubscribers(w http.ResponseWriter, r *http.Request) error {
 
 	var subscribers []Subscriber
 
-	rows, err := db.Query(`SELECT
+	rows, err := h.db.Query(`SELECT
 		id,
 		email,
 		full_name,
@@ -186,7 +186,7 @@ func adminhandleGetSubscribers(w http.ResponseWriter, r *http.Request) error {
 }
 
 // Handler to load the post for editing
-func adminHandleEditPostPage(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandleEditPostPage(w http.ResponseWriter, r *http.Request) error {
 	// Parse post ID from URL
 	postID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
@@ -195,7 +195,7 @@ func adminHandleEditPostPage(w http.ResponseWriter, r *http.Request) error {
 
 	// Fetch post from the database
 	var post Post
-	err = db.QueryRow(`SELECT
+	err = h.db.QueryRow(`SELECT
 		website_id,
 		id,
 		description,
@@ -236,7 +236,7 @@ func adminHandleEditPostPage(w http.ResponseWriter, r *http.Request) error {
 }
 
 // Handler to update the post
-func adminHandlePostEditPost(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandlePostEditPost(w http.ResponseWriter, r *http.Request) error {
 	if r.Method != http.MethodPost {
 		return fmt.Errorf("invalid request method %d", http.StatusMethodNotAllowed)
 	}
@@ -266,7 +266,7 @@ func adminHandlePostEditPost(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Update post in the database
-	_, err = db.Exec(`UPDATE posts
+	_, err = h.db.Exec(`UPDATE posts
 	SET
 		website_id = ?,
 		description = ?,
@@ -293,8 +293,8 @@ func adminHandlePostEditPost(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func adminHandleGetSignOut(w http.ResponseWriter, r *http.Request) error {
-	session, err := store.Get(r, "admin_session")
+func (h *Handler) adminHandleGetSignOut(w http.ResponseWriter, r *http.Request) error {
+	session, err := h.store.Get(r, "admin_session")
 	if err != nil {
 		return err
 	}
@@ -313,7 +313,7 @@ func adminHandleGetSignOut(w http.ResponseWriter, r *http.Request) error {
 
 }
 
-func adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) error {
 	if err := r.ParseForm(); err != nil {
 		return err
 	}
@@ -334,14 +334,14 @@ func adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) error {
 		return renderPage(w, "adminsignin", nil)
 	}
 
-	session, err := store.Get(r, "admin_session")
+	session, err := h.store.Get(r, "admin_session")
 	if err != nil {
 		return err
 	}
 
 	session.Values["admin_email"] = email
 
-	if err := store.Save(r, w, session); err != nil {
+	if err := h.store.Save(r, w, session); err != nil {
 		return err
 	}
 
@@ -349,7 +349,7 @@ func adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func adminDeletePostPage(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminDeletePostPage(w http.ResponseWriter, r *http.Request) error {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		return err
@@ -361,13 +361,13 @@ func adminDeletePostPage(w http.ResponseWriter, r *http.Request) error {
 
 }
 
-func adminConfirmDeletePost(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminConfirmDeletePost(w http.ResponseWriter, r *http.Request) error {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
 
-	if _, err := db.Exec(`DELETE FROM posts WHERE id = ?`, id); err != nil {
+	if _, err := h.db.Exec(`DELETE FROM posts WHERE id = ?`, id); err != nil {
 		return err
 	}
 

@@ -1,20 +1,15 @@
 package main
 
 import (
-	"database/sql"
 	"errors"
 )
 
-func insertHashtag(db *sql.DB, h *Hashtag) (lastInsertID int, err error) {
-	if db == nil {
-		return -1, errDBNil
-	}
-
+func (s *Service) insertHashtag(h *Hashtag) (lastInsertID int, err error) {
 	if h == nil {
 		return -1, errors.New("hashtag passed to insert hashtag is nil")
 	}
 
-	res, err := db.Exec(`INSERT INTO hashtags (phrase) VALUES (?)`, h.Phrase)
+	res, err := s.db.Exec(`INSERT INTO hashtags (phrase) VALUES (?)`, h.Phrase)
 	if err != nil {
 		return -1, err
 	}
@@ -27,13 +22,9 @@ func insertHashtag(db *sql.DB, h *Hashtag) (lastInsertID int, err error) {
 	return int(lastID), nil
 }
 
-func countHashtagsByPhrase(db *sql.DB, phrase string) (int, error) {
-	if db == nil {
-		return -1, errDBNil
-	}
-
+func (s *Service) countHashtagsByPhrase(phrase string) (int, error) {
 	var count int
-	err := db.QueryRow(`SELECT COUNT(id) FROM hashtags WHERE phrase = ?`, phrase).Scan(&count)
+	err := s.db.QueryRow(`SELECT COUNT(id) FROM hashtags WHERE phrase = ?`, phrase).Scan(&count)
 	if err != nil {
 		return 0, err
 	}
@@ -41,28 +32,20 @@ func countHashtagsByPhrase(db *sql.DB, phrase string) (int, error) {
 	return count, nil
 }
 
-func getHashtagIDByPhrase(db *sql.DB, phrase string) (int, error) {
-	if db == nil {
-		return -1, errDBNil
-	}
-
+func (s *Service) getHashtagIDByPhrase(phrase string) (int, error) {
 	q := `SELECT id FROM hashtags WHERE phrase = ?`
 	var h int
-	err := db.QueryRow(q, phrase).Scan(&h)
+	err := s.db.QueryRow(q, phrase).Scan(&h)
 	if err != nil {
 		return 0, err
 	}
 	return h, nil
 }
 
-func getHashtagByID(db *sql.DB, id int) (*Hashtag, error) {
-	if db == nil {
-		return nil, errDBNil
-	}
-
+func (s *Service) getHashtagByID(id int) (*Hashtag, error) {
 	q := `SELECT id, phrase from hashtags WHERE id = ?`
 	var h Hashtag
-	if err := db.QueryRow(q, id).Scan(&h.ID, &h.Phrase); err != nil {
+	if err := s.db.QueryRow(q, id).Scan(&h.ID, &h.Phrase); err != nil {
 		return nil, err
 	}
 	return &h, nil

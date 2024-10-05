@@ -85,7 +85,7 @@ func lower(s string) string {
 
 /* template functions end */
 
-func renderPage(w io.Writer, name string, data map[string]any) error {
+func renderPage(mode Mode, w io.Writer, name string, data map[string]any) error {
 	templateData := map[string]any{
 		"Env": mode,
 	}
@@ -97,9 +97,9 @@ func renderPage(w io.Writer, name string, data map[string]any) error {
 	return render(w, name, templateData)
 }
 
-func render(w io.Writer, name string, data any) error {
+func render(mode Mode, w io.Writer, name string, data any) error {
 	var buf bytes.Buffer
-	if err := tmpl().ExecuteTemplate(&buf, name, data); err != nil {
+	if err := tmpl(mode).ExecuteTemplate(&buf, name, data); err != nil {
 		return fmt.Errorf("render error: %w", err)
 	}
 	_, err := buf.WriteTo(w)
@@ -108,7 +108,7 @@ func render(w io.Writer, name string, data any) error {
 
 var _tmpl *template.Template
 
-func tmpl() *template.Template {
+func tmpl(mode Mode) *template.Template {
 	if mode == Prod && _tmpl != nil {
 		return _tmpl
 	}

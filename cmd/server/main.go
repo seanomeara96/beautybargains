@@ -21,13 +21,6 @@ const (
 	Prod Mode = "prod"
 )
 
-var db *sql.DB
-var err error
-var mode Mode
-var port string
-var productionDomain string
-var store *sessions.CookieStore
-
 /* models end */
 
 func main() {
@@ -36,11 +29,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	db, err = sql.Open("sqlite3", "main.db")
+	db, err := sql.Open("sqlite3", "main.db")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
+
+	service := &Service{db}
 
 	_skip := flag.Bool("skip", false, "skip bannner extraction and hashtag processing")
 	_port := flag.String("port", "", "http port")
@@ -48,30 +43,30 @@ func main() {
 
 	flag.Parse()
 
-	port = *_port
-	mode = Mode(*_mode)
+	port := *_port
+	mode := Mode(*_mode)
 	skip := *_skip
 
 	if !skip {
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
-			process()
+			process(service)
 			for {
 				<-ticker.C
-				process()
+				process(service)
 			}
 		}()
 	} else {
 		log.Println("skipping banner extractions and hashtag process")
 	}
 
-	if err := server(); err != nil {
+	if err := server(port, mode, db, service); err != nil {
 		log.Fatal(err)
 	}
 
 }
 
-func server() error {
+func server(port string, mode Mode, db *sql.DB, service *Service) error {
 
 	if port == "" {
 		return fmt.Errorf("port is required via -port flag")
@@ -82,11 +77,16 @@ func server() error {
 		mode = Dev
 	}
 
-	store = sessions.NewCookieStore([]byte(os.Getenv(`SESSION_KEY`)))
+	store := sessions.NewCookieStore([]byte(os.Getenv(`SESSION_KEY`)))
 
-	productionDomain = os.Getenv("PROD_DOMAIN")
+	productionDomain := os.Getenv("PROD_DOMAIN")
 	if mode == Prod && productionDomain == "" {
 		return errors.New("must supply production domain to run server in prod")
+	}
+
+	currentDomain := "http://localhost:" + port
+	if mode == Prod {
+		currentDomain = productionDomain
 	}
 
 	r := http.NewServeMux()
@@ -109,26 +109,35 @@ func server() error {
 		http.ServeFile(w, r, "./static/sitemap.xml")
 	})
 
-	globalMiddleware := []middleware{pathLogger}
+	handler := Handler{
+		db:      db,
+		store:   store,
+		mode:    mode,
+		domain:  currentDomain,
+		service: service,
+	}
+
+	globalMiddleware := []middleware{handler.pathLogger}
 
 	handle := newHandleFunc(r, globalMiddleware)
 
-	handle("/", handleGetFeed)
-	handle("GET /store/{websiteName}", handleGetFeed)
-	handle("POST /subscribe", handlePostSubscribe)
-	handle("GET /subscribe", handleGetSubscribePage)
-	handle("GET /subscribe/verify", handleGetVerifySubscription)
+	handle("/", handler.handleGetFeed)
+	handle("GET /store/{websiteName}", handler.handleGetFeed)
+	handle("GET /categories", handler.handleGetCategories)
+	handle("POST /subscribe", handler.handlePostSubscribe)
+	handle("GET /subscribe", handler.handleGetSubscribePage)
+	handle("GET /subscribe/verify", handler.handleGetVerifySubscription)
 
-	handle("GET /admin/signin", adminHandleGetSignIn)
-	handle("POST /admin/signin", adminHandlePostSignIn)
-	handle("GET /admin/signout", adminHandleGetSignOut)
-	handle("GET /admin", mustBeAdmin(adminHandleGetDashboard))
-	handle("GET /admin/manage/subscribers", mustBeAdmin(adminhandleGetSubscribers))
-	handle("GET /admin/events/edit/{id}", mustBeAdmin(adminHandleEditPostPage))
-	handle("POST /admin/events/edit/{id}", mustBeAdmin(adminHandlePostEditPost))
+	handle("GET /admin/signin", handler.adminHandleGetSignIn)
+	handle("POST /admin/signin", handler.adminHandlePostSignIn)
+	handle("GET /admin/signout", handler.adminHandleGetSignOut)
+	handle("GET /admin", handler.mustBeAdmin(handler.adminHandleGetDashboard))
+	handle("GET /admin/manage/subscribers", handler.mustBeAdmin(handler.adminhandleGetSubscribers))
+	handle("GET /admin/events/edit/{id}", handler.mustBeAdmin(handler.adminHandleEditPostPage))
+	handle("POST /admin/events/edit/{id}", handler.mustBeAdmin(handler.adminHandlePostEditPost))
 
-	handle("GET /admin/events/delete/{id}", mustBeAdmin(adminDeletePostPage))
-	handle("GET /admin/events/delete/{id}/confirm", mustBeAdmin(adminConfirmDeletePost))
+	handle("GET /admin/events/delete/{id}", handler.mustBeAdmin(handler.adminDeletePostPage))
+	handle("GET /admin/events/delete/{id}/confirm", handler.mustBeAdmin(handler.adminConfirmDeletePost))
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

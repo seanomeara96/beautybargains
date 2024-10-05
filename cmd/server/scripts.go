@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-func processHashtags() error {
+func processHashtags(service *Service) error {
 
 	/*
 		Get all posts. At some point I will have to implement a way to filter for posts
 		that have not already been processed
 	*/
-	posts, err := getPosts(db, getPostParams{})
+	posts, err := service.getPosts(getPostParams{})
 	if err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func processHashtags() error {
 				return errors.New("match was less than 2")
 			}
 			phrase := strings.ToLower(match[1])
-			count, err := countHashtagsByPhrase(db, phrase)
+			count, err := service.countHashtagsByPhrase(phrase)
 			if err != nil {
 				return err
 			}
@@ -44,7 +44,7 @@ func processHashtags() error {
 				If the phrase does not exist we need to save the phrase and the relationship.
 			*/
 			if exists {
-				hashtagID, err := getHashtagIDByPhrase(db, phrase)
+				hashtagID, err := service.getHashtagIDByPhrase(phrase)
 				if err != nil {
 					return err
 				}
@@ -52,23 +52,23 @@ func processHashtags() error {
 				q := `SELECT count(*) FROM post_hashtags WHERE post_id = ? AND hashtag_id = ?`
 
 				var count int
-				if err := db.QueryRow(q, p.ID, hashtagID).Scan(&count); err != nil {
+				if err := service.db.QueryRow(q, p.ID, hashtagID).Scan(&count); err != nil {
 					return fmt.Errorf("could not count relationships between %d & %d. %v", p.ID, hashtagID, err)
 				}
 
 				noRelationShip := count < 1
 				if noRelationShip {
-					err = insertPostHashtagRelationship(db, p.ID, hashtagID)
+					err = service.insertPostHashtagRelationship(p.ID, hashtagID)
 					if err != nil {
 						return err
 					}
 				}
 			} else {
-				newTagID, err := insertHashtag(db, &Hashtag{Phrase: phrase})
+				newTagID, err := service.insertHashtag(&Hashtag{Phrase: phrase})
 				if err != nil {
 					return err
 				}
-				err = insertPostHashtagRelationship(db, p.ID, newTagID)
+				err = service.insertPostHashtagRelationship(p.ID, newTagID)
 				if err != nil {
 					return err
 				}
@@ -79,7 +79,7 @@ func processHashtags() error {
 	return nil
 }
 
-func extractOffersFromBanners() error {
+func extractOffersFromBanners(service *Service) error {
 
 	websites := getWebsites(0, 0)
 
@@ -93,7 +93,7 @@ func extractOffersFromBanners() error {
 		for _, banner := range banners {
 
 			var bannerCount int
-			err := db.QueryRow(`SELECT count(id) FROM posts WHERE src_url = ?`, banner.Src).Scan(&bannerCount)
+			err := service.db.QueryRow(`SELECT count(id) FROM posts WHERE src_url = ?`, banner.Src).Scan(&bannerCount)
 			if err != nil {
 				return fmt.Errorf("error checking existance of banner %v", err)
 			}
@@ -123,7 +123,7 @@ func extractOffersFromBanners() error {
 			// I picked 8 randomly for author id
 			authorID := author.ID
 
-			_, err = db.Exec(
+			_, err = service.db.Exec(
 				"INSERT INTO posts(website_id, src_url, author_id, description, timestamp) VALUES (? , ? , ?, ?, ?)",
 				website.WebsiteID, banner.Src, authorID, description, time.Now())
 			if err != nil {
@@ -133,25 +133,25 @@ func extractOffersFromBanners() error {
 
 	}
 
-	if err := processHashtags(); err != nil {
+	if err := processHashtags(service); err != nil {
 		return err
 	}
 	return nil
 }
 
-func process() {
+func process(service *Service) {
 	fmt.Println("start processing")
-	if err := extractOffersFromBanners(); err != nil {
+	if err := extractOffersFromBanners(service); err != nil {
 		reportErr(err)
 	}
-	if err := scorePosts(); err != nil {
+	if err := scorePosts(service); err != nil {
 		reportErr(err)
 	}
 	fmt.Println("finished processing")
 }
 
-func scorePosts() error {
-	posts, err := getPosts(db, getPostParams{})
+func scorePosts(service *Service) error {
+	posts, err := service.getPosts(getPostParams{})
 	if err != nil {
 		return err
 	}
@@ -164,7 +164,7 @@ func scorePosts() error {
 
 		if posts[i].Score != float64(w.Score) {
 			posts[i].Score = float64(w.Score)
-			_, err := db.Exec("UPDATE posts SET score = ? WHERE id = ?", posts[i].Score, posts[i].ID)
+			_, err := service.db.Exec("UPDATE posts SET score = ? WHERE id = ?", posts[i].Score, posts[i].ID)
 			if err != nil {
 				return err
 			}
