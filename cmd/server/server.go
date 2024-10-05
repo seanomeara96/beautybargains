@@ -70,8 +70,8 @@ func server(port string, mode Mode, service *Service) error {
 
 	handle("/", handler.handleGetFeed)
 	handle("GET /store/{websiteName}", handler.handleGetFeed)
-	handle("POST /subscribe", handler.handlePostSubscribe)
-	handle("GET /subscribe", handler.handleGetSubscribePage)
+	handle("GET /subscribe", handler.handleSubscribe)
+	handle("POST /subscribe", handler.handleStoreSubscription)
 	handle("GET /subscribe/verify", handler.handleGetVerifySubscription)
 
 	handle("GET /admin/signin", handler.adminHandleGetSignIn)

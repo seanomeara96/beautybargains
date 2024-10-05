@@ -62,7 +62,7 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	return h.render.Page(w, "feedpage", data)
 }
 
-func (h *Handler) handlePostSubscribe(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) handleStoreSubscription(w http.ResponseWriter, r *http.Request) error {
 	if err := r.ParseForm(); err != nil {
 		return fmt.Errorf("could not parse form: %w", err)
 	}
@@ -119,7 +119,7 @@ func (h *Handler) handlePostSubscribe(w http.ResponseWriter, r *http.Request) er
 
 }
 
-func (h *Handler) handleGetSubscribePage(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) handleSubscribe(w http.ResponseWriter, r *http.Request) error {
 	return h.render.Page(w, "subscribepage", map[string]any{})
 }
 
