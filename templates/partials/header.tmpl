@@ -35,33 +35,6 @@
               >Stores</a
             >
           </li>
-          <!--<li><a href="/brands" class="text-gray-600 hover:text-yellow-500 transition duration-300">Brands</a></li>-->
-          <li class="relative group">
-            <a
-              href="/categories"
-              class="text-gray-600 hover:text-yellow-500 transition duration-300"
-              >Categories</a
-            >
-            <ul
-              class="absolute hidden top-1/2 group-hover:block hover:block bg-white shadow-md mt-2"
-              style="z-index: 1000"
-            >
-              {{
-                range.Categories
-              }}
-              <li>
-                <a
-                  href="/categories/{{ .URL }}"
-                  class="block px-4 py-2 text-gray-600 hover:text-yellow-500 transition duration-300"
-                  >{{ .Name }}</a
-                >
-              </li>
-              {{
-                end
-              }}
-            </ul>
-          </li>
-
           <li>
             <a
               href="/subscribe"

@@ -1,6 +1,8 @@
 package main
 
-import "github.com/gosimple/slug"
+import (
+	"fmt"
+)
 
 type Category struct {
 	ID       int
@@ -9,39 +11,71 @@ type Category struct {
 	URL      string
 }
 
-func getCategories(limit, offset int) []Category {
-	var categories = []Category{
-		{ID: 1, ParentID: 0, Name: "Haircare"},
-		{ID: 2, ParentID: 0, Name: "Skincare"},
-		{ID: 3, ParentID: 0, Name: "Makeup"},
-		{ID: 4, ParentID: 0, Name: "Fragrance"},
-		{ID: 5, ParentID: 0, Name: "Body Care"},
-		{ID: 6, ParentID: 0, Name: "Nail Care"},
-		{ID: 7, ParentID: 0, Name: "Men's Grooming"},
-		{ID: 8, ParentID: 0, Name: "Beauty Tools"},
-		{ID: 9, ParentID: 0, Name: "Bath & Shower"},
-		{ID: 10, ParentID: 0, Name: "Sun Care"},
-		{ID: 11, ParentID: 0, Name: "Oral Care"},
-		{ID: 12, ParentID: 0, Name: "Wellness"},
+// CreateCategory inserts a new category into the database
+func (s *Service) CreateCategory(c *Category) error {
+	query := `INSERT INTO categories (parent_id, name, url) VALUES (?, ?, ?)`
+	result, err := s.db.Exec(query, c.ParentID, c.Name, c.URL)
+	if err != nil {
+		return fmt.Errorf("error creating category: %v", err)
 	}
-
-	for i := range categories {
-		categories[i].URL = slug.Make(categories[i].Name)
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("error getting last insert ID: %v", err)
 	}
+	c.ID = int(id)
+	return nil
+}
 
-	lenCategories := len(categories)
-
-	if limit == 0 || limit > lenCategories {
-		limit = lenCategories
+// GetCategory retrieves a category by ID
+func (s *Service) GetCategory(id int) (*Category, error) {
+	query := `SELECT id, parent_id, name, url FROM categories WHERE id = ?`
+	c := &Category{}
+	err := s.db.QueryRow(query, id).Scan(&c.ID, &c.ParentID, &c.Name, &c.URL)
+	if err != nil {
+		return nil, fmt.Errorf("error getting category: %v", err)
 	}
+	return c, nil
+}
 
-	if offset >= lenCategories {
-		offset = 0
+// UpdateCategory updates an existing category in the database
+func (s *Service) UpdateCategory(c *Category) error {
+	query := `UPDATE categories SET parent_id = ?, name = ?, url = ? WHERE id = ?`
+	_, err := s.db.Exec(query, c.ParentID, c.Name, c.URL, c.ID)
+	if err != nil {
+		return fmt.Errorf("error updating category: %v", err)
 	}
+	return nil
+}
 
-	toReturn := make([]Category, 0, limit)
-	for i := offset; i < limit; i++ {
-		toReturn = append(toReturn, categories[i])
+// DeleteCategory removes a category from the database
+func (s *Service) DeleteCategory(id int) error {
+	query := `DELETE FROM categories WHERE id = ?`
+	_, err := s.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("error deleting category: %v", err)
 	}
-	return toReturn
+	return nil
+}
+
+// ListCategories retrieves a list of categories with pagination
+func (s *Service) GetCategories(limit, offset int) ([]Category, error) {
+	query := `SELECT id, parent_id, name, url FROM categories LIMIT ? OFFSET ?`
+	rows, err := s.db.Query(query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("error listing categories: %v", err)
+	}
+	defer rows.Close()
+
+	var categories []Category
+	for rows.Next() {
+		var c Category
+		if err := rows.Scan(&c.ID, &c.ParentID, &c.Name, &c.URL); err != nil {
+			return nil, fmt.Errorf("error scanning category row: %v", err)
+		}
+		categories = append(categories, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating category rows: %v", err)
+	}
+	return categories, nil
 }

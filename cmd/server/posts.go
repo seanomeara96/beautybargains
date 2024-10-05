@@ -1,27 +1,33 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 )
 
-type GetTopByPostCountResponse struct {
-	HashtagID int
-	PostCount int
+type Post struct {
+	WebsiteID   int
+	ID          int
+	Description string
+	SrcURL      string
+	Link        sql.NullString
+	Timestamp   time.Time
+	AuthorID    int // supposed to correspond with a persona id
+	Score       float64
 }
 
 type getPostParams struct {
 	WebsiteID     int
 	IDs           []int
 	Limit         int
+	Offset        int
 	SortBy        string
 	SortAscending bool
 }
 
 func (s *Service) getPosts(params getPostParams) ([]Post, error) {
-	if s.db == nil {
-		return nil, errDBNil
-	}
 
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("SELECT id, website_id, src_url, author_id, description, timestamp FROM posts")
@@ -71,6 +77,11 @@ func (s *Service) getPosts(params getPostParams) ([]Post, error) {
 		args = append(args, params.Limit)
 	}
 
+	if params.Offset > 0 {
+		queryBuilder.WriteString(" OFFSET ?")
+		args = append(args, params.Offset)
+	}
+
 	rows, err := s.db.Query(queryBuilder.String(), args...)
 	if err != nil {
 		return nil, err
@@ -98,4 +109,51 @@ func (s *Service) getPosts(params getPostParams) ([]Post, error) {
 	}
 
 	return posts, nil
+}
+
+func (s *Service) GetPreviewPosts(website Website, postIDs []int) ([]Post, error) {
+	args := []any{}
+	var q strings.Builder
+	q.WriteString(`WITH orderedPosts AS (
+	SELECT id, description, author_id, Score, src_url, timestamp, website_id
+	FROM posts p `)
+
+	if len(postIDs) > 0 {
+		q.WriteString(`WHERE p.id IN (`)
+		q.WriteString(strings.Repeat("?,", len(postIDs)-1) + "?)")
+		for _, id := range postIDs {
+			args = append(args, id)
+		}
+	} else if website.WebsiteID != 0 {
+		q.WriteString(`WHERE website_id = ?`)
+		args = append(args, website.WebsiteID)
+	}
+
+	q.WriteString(` ORDER BY timestamp DESC LIMIT 6)
+	SELECT * FROM orderedPosts ORDER BY score DESC LIMIT 6`)
+
+	rows, err := s.db.Query(q.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []Post
+	for rows.Next() {
+		var post Post
+		if err := rows.Scan(
+			&post.ID,
+			&post.Description,
+			&post.AuthorID,
+			&post.Score,
+			&post.SrcURL,
+			&post.Timestamp,
+			&post.WebsiteID,
+		); err != nil {
+			return nil, err
+		}
+		posts = append(posts, post)
+	}
+
+	return posts, err
 }

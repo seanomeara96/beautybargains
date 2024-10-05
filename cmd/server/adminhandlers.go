@@ -4,150 +4,64 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
-	"strings"
-	"time"
 
+	"github.com/seanomeara96/paginator"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func (h *Handler) adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
 
-	rows, err := h.db.Query("SELECT id, description, author_id, score, src_url, timestamp, website_id FROM posts ORDER BY timestamp DESC")
+	limit, offset, _ := paginator.Paginate(r, 50)
+
+	posts, err := h.service.getPosts(getPostParams{
+		Limit:  limit,
+		Offset: offset,
+	})
 	if err != nil {
 		return err
 	}
 
-	var posts []Post
-	for rows.Next() {
-		var post Post
-		if err := rows.Scan(&post.ID, &post.Description, &post.AuthorID, &post.Score, &post.SrcURL, &post.Timestamp, &post.WebsiteID); err != nil {
-			return err
-		}
-		posts = append(posts, post)
+	data := map[string]any{
+		"Posts": posts,
+		"Admin": true,
 	}
 
-	personas := getPersonas(0, 0)
+	return h.render.Page(w, "admindashboard", data)
+}
 
-	events := make([]Event, 0, len(posts))
-	for i := 0; i < len(posts); i++ {
-		e := Event{}
+func (h *Handler) adminHandleListPosts(w http.ResponseWriter, r *http.Request) error {
 
-		e.ID = posts[i].ID
+	limit, offset, _ := paginator.Paginate(r, 50)
 
-		for _, persona := range personas {
-			if persona.ID == posts[i].AuthorID {
-				e.Profile.Username = persona.Name
-				e.Profile.Photo = persona.ProfilePhoto
-			}
-		}
-		//	e.Profile.Username
-
-		// Step 1: Calculate Time Difference
-		timeDiff := time.Since(posts[i].Timestamp)
-
-		// Step 2: Determine Unit (Days or Hours)
-		var unit string
-		var magnitude int
-
-		hours := int(timeDiff.Hours())
-		days := hours / 24
-
-		if days > 0 {
-			unit = "Days"
-			magnitude = days
-		} else {
-			if hours == 1 {
-				unit = "Hour"
-			} else {
-				unit = "Hours"
-			}
-			magnitude = hours
-		}
-
-		// Step 3: Format String
-		e.Content.TimeElapsed = fmt.Sprintf("%d %s ago", magnitude, unit)
-		e.Meta.Src = &posts[i].SrcURL
-
-		if posts[i].Link.Valid {
-			e.Meta.CTALink = &posts[i].Link.String
-		}
-
-		pattern := regexp.MustCompile(`#(\w+)`)
-
-		extraText := posts[i].Description
-
-		matches := pattern.FindAllStringSubmatch(extraText, -1)
-
-		for _, match := range matches {
-			phrase := strings.ToLower(match[1])
-			extraText = strings.Replace(extraText, match[0], fmt.Sprintf("<a class='text-blue-500' href='?hashtag=%s'>%s</a>", phrase, match[0]), 1)
-		}
-
-		extraTextHTML := template.HTML(extraText)
-
-		e.Content.ExtraText = &extraTextHTML
-		website, err := getWebsiteByID(posts[i].WebsiteID)
-		if err != nil {
-			return fmt.Errorf("could not get website by id %d. %v", posts[i].WebsiteID, err)
-		}
-		e.Content.Summary = fmt.Sprintf("posted an update about %s", website.WebsiteName)
-		// e.Content.ExtraImages = nil
-		e.Content.ExtraImages = &[]ExtraImage{{posts[i].SrcURL, ""}}
-		events = append(events, e)
-	}
-
-	limit := 5
-	q := `SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT ?`
-	rows, err = h.db.Query(q, limit)
+	posts, err := h.service.getPosts(getPostParams{
+		Limit:  limit,
+		Offset: offset,
+	})
 	if err != nil {
-		return fmt.Errorf("could not count hashtag mentions in db: %w", err)
-	}
-	defer rows.Close()
-
-	top := make([]GetTopByPostCountResponse, 0, limit)
-	for rows.Next() {
-		var row GetTopByPostCountResponse
-		if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
-			return err
-		}
-		top = append(top, row)
-	} // should expect an array like {hashtag, postcount}
-
-	var trendingHashtags []Trending
-	for _, row := range top {
-		hashtag, err := h.service.getHashtagByID(row.HashtagID)
-		if err != nil {
-			return fmt.Errorf("could not get hashtag by id at GetTrending in hashtagsvc. %w", err)
-		}
-		trendingHashtags = append(trendingHashtags, Trending{Category: "Topic", Phrase: hashtag.Phrase, PostCount: row.PostCount})
+		return err
 	}
 
 	data := map[string]any{
-		"Events":     events,
-		"Websites":   getWebsites(0, 0),
-		"Trending":   trendingHashtags,
-		"Categories": getCategories(0, 0),
-		"Admin":      true,
+		"Posts": posts,
+		"Admin": true,
 	}
 
-	return renderPage(w, "admindashboard", data)
+	return h.render.Page(w, "adminposts", data)
 }
 
 func (h *Handler) adminHandleGetSignIn(w http.ResponseWriter, r *http.Request) error {
-	return renderPage(w, "adminsignin", nil)
+	return h.render.Page(w, "adminsignin", nil)
 }
 
 func (h *Handler) adminhandleGetSubscribers(w http.ResponseWriter, r *http.Request) error {
 
 	var subscribers []Subscriber
 
-	rows, err := h.db.Query(`SELECT
+	rows, err := h.service.db.Query(`SELECT
 		id,
 		email,
 		full_name,
@@ -180,13 +94,13 @@ func (h *Handler) adminhandleGetSubscribers(w http.ResponseWriter, r *http.Reque
 		subscribers = append(subscribers, s)
 	}
 
-	return renderPage(w, "adminsubscribers", map[string]any{
+	return h.render.Page(w, "adminsubscribers", map[string]any{
 		"Subscribers": subscribers,
 	})
 }
 
 // Handler to load the post for editing
-func (h *Handler) adminHandleEditPostPage(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandleEditPost(w http.ResponseWriter, r *http.Request) error {
 	// Parse post ID from URL
 	postID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
@@ -195,7 +109,7 @@ func (h *Handler) adminHandleEditPostPage(w http.ResponseWriter, r *http.Request
 
 	// Fetch post from the database
 	var post Post
-	err = h.db.QueryRow(`SELECT
+	err = h.service.db.QueryRow(`SELECT
 		website_id,
 		id,
 		description,
@@ -227,7 +141,7 @@ func (h *Handler) adminHandleEditPostPage(w http.ResponseWriter, r *http.Request
 
 	// Render the edit post page
 
-	if err = renderPage(w, "admineditpost", map[string]any{
+	if err = h.render.Page(w, "admineditpost", map[string]any{
 		"Post": post,
 	}); err != nil {
 		return err
@@ -236,7 +150,7 @@ func (h *Handler) adminHandleEditPostPage(w http.ResponseWriter, r *http.Request
 }
 
 // Handler to update the post
-func (h *Handler) adminHandlePostEditPost(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandleUpdatePost(w http.ResponseWriter, r *http.Request) error {
 	if r.Method != http.MethodPost {
 		return fmt.Errorf("invalid request method %d", http.StatusMethodNotAllowed)
 	}
@@ -266,7 +180,7 @@ func (h *Handler) adminHandlePostEditPost(w http.ResponseWriter, r *http.Request
 	}
 
 	// Update post in the database
-	_, err = h.db.Exec(`UPDATE posts
+	_, err = h.service.db.Exec(`UPDATE posts
 	SET
 		website_id = ?,
 		description = ?,
@@ -326,12 +240,12 @@ func (h *Handler) adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) 
 
 	if email != os.Getenv("ADMIN_EMAIL") {
 		log.Println("incorrect admin email supplied")
-		return renderPage(w, "adminsignin", nil)
+		return h.render.Page(w, "adminsignin", nil)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(os.Getenv("HASHED_PASSWORD")), []byte(password)); err != nil {
 		log.Printf("incorrect password supplied %v", err)
-		return renderPage(w, "adminsignin", nil)
+		return h.render.Page(w, "adminsignin", nil)
 	}
 
 	session, err := h.store.Get(r, "admin_session")
@@ -349,25 +263,29 @@ func (h *Handler) adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) 
 	return nil
 }
 
-func (h *Handler) adminDeletePostPage(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandleDeletePostConfirmation(w http.ResponseWriter, r *http.Request) error {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
 
-	return renderPage(w, "adminconfirmdeletepost", map[string]any{
+	return h.render.Page(w, "adminconfirmdeletepost", map[string]any{
 		"PostID": id,
 	})
 
 }
 
-func (h *Handler) adminConfirmDeletePost(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) adminHandleDeletePost(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodDelete {
+		return errors.New("delete method required")
+	}
+
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
 
-	if _, err := h.db.Exec(`DELETE FROM posts WHERE id = ?`, id); err != nil {
+	if _, err := h.service.db.Exec(`DELETE FROM posts WHERE id = ?`, id); err != nil {
 		return err
 	}
 

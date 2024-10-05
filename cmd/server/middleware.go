@@ -18,8 +18,7 @@ func (h *Handler) mustBeAdmin(next handleFunc) handleFunc {
 
 		email, found := session.Values["admin_email"]
 		if !found || email != os.Getenv("ADMIN_EMAIL") {
-			w.WriteHeader(http.StatusUnauthorized)
-			return nil
+			return h.Unauthorized(w, r)
 		}
 
 		return next(w, r.WithContext(context.WithValue(r.Context(), adminEmailContextKey, email)))

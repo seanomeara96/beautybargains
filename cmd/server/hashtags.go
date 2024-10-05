@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 )
 
 func (s *Service) insertHashtag(h *Hashtag) (lastInsertID int, err error) {
@@ -49,4 +50,55 @@ func (s *Service) getHashtagByID(id int) (*Hashtag, error) {
 		return nil, err
 	}
 	return &h, nil
+}
+
+func (s *Service) getPostIDsByHashtagQuery(hashtagQuery string, postIDs []int) error {
+	hashtagID, err := s.getHashtagIDByPhrase(hashtagQuery)
+	if err != nil {
+		return fmt.Errorf("could not get hashtag id: %w", err)
+	}
+
+	postIdRows, err := s.db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
+	if err != nil {
+		return fmt.Errorf("error getting post_ids: %w", err)
+	}
+	defer postIdRows.Close()
+
+	for postIdRows.Next() {
+		var id int
+		if err := postIdRows.Scan(&id); err != nil {
+			return fmt.Errorf("error scanning post_id: %w", err)
+		}
+		postIDs = append(postIDs, id)
+	}
+
+	return nil
+}
+func (s *Service) GetTrendingHashtags() ([]Hashtag, error) {
+	rows, err := s.db.Query(`SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT 5`)
+	if err != nil {
+		return nil, fmt.Errorf("could not count hashtag mentions: %w", err)
+	}
+	defer rows.Close()
+	type hashtagCount struct {
+		HashtagID int
+		PostCount int
+	}
+	top := make([]hashtagCount, 0, 5)
+	for rows.Next() {
+		var row hashtagCount
+		if err := rows.Scan(&row.HashtagID, &row.PostCount); err != nil {
+			return nil, err
+		}
+		top = append(top, row)
+	}
+	var trendingHashtags []Hashtag
+	for _, row := range top {
+		hashtag, err := s.getHashtagByID(row.HashtagID)
+		if err != nil {
+			return nil, fmt.Errorf("could not get hashtag by id: %w", err)
+		}
+		trendingHashtags = append(trendingHashtags, Hashtag{ID: hashtag.ID, Phrase: hashtag.Phrase})
+	}
+	return trendingHashtags, nil
 }

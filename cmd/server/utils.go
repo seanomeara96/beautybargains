@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io"
 	"log"
 	"net/http"
 	"regexp"
@@ -81,50 +79,6 @@ func isCurrentPage(r *http.Request, path string) bool {
 
 func lower(s string) string {
 	return strings.ToLower(s)
-}
-
-/* template functions end */
-
-func renderPage(mode Mode, w io.Writer, name string, data map[string]any) error {
-	templateData := map[string]any{
-		"Env": mode,
-	}
-
-	for k, v := range data {
-		templateData[k] = v
-	}
-
-	return render(w, name, templateData)
-}
-
-func render(mode Mode, w io.Writer, name string, data any) error {
-	var buf bytes.Buffer
-	if err := tmpl(mode).ExecuteTemplate(&buf, name, data); err != nil {
-		return fmt.Errorf("render error: %w", err)
-	}
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-var _tmpl *template.Template
-
-func tmpl(mode Mode) *template.Template {
-	if mode == Prod && _tmpl != nil {
-		return _tmpl
-	}
-	funcMap := template.FuncMap{
-		"longDate":            formatLongDate,
-		"placeholderImage":    placeholderImage,
-		"truncateDescription": truncateDescription,
-		"proper":              proper,
-		"unescape":            unescape,
-		"isCurrentPage":       isCurrentPage,
-		"add":                 add,
-		"subtract":            subtract,
-		"lower":               lower,
-	}
-	_tmpl = template.Must(template.New("web").Funcs(funcMap).ParseGlob("templates/**/*.tmpl"))
-	return _tmpl
 }
 
 // to replace existing method. supports 'supporting text'

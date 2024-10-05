@@ -7,24 +7,6 @@ import (
 	"time"
 )
 
-type Brand struct {
-	ID    int
-	Name  string
-	Path  string
-	Score float64
-}
-
-type Post struct {
-	WebsiteID   int
-	ID          int
-	Description string
-	SrcURL      string
-	Link        sql.NullString
-	Timestamp   time.Time
-	AuthorID    int // supposed to correspond with a persona id
-	Score       float64
-}
-
 type Hashtag struct {
 	ID     int
 	Phrase string
