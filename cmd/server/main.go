@@ -30,7 +30,8 @@ func main() {
 	}
 	defer db.Close()
 
-	service := &Service{db}
+	service := &Service{db: db}
+	defer service.Close()
 
 	_skip := flag.Bool("skip", false, "skip bannner extraction and hashtag processing")
 	_port := flag.String("port", "", "http port")
