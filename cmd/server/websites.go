@@ -5,6 +5,16 @@ import (
 	"strings"
 )
 
+// Website struct matching the Websites table
+type Website struct {
+	WebsiteID   int     `json:"website_id"`
+	WebsiteName string  `json:"website_name"`
+	URL         string  `json:"url"`
+	Country     string  `json:"country"`
+	Score       float64 `json:"score"`
+	Screenshot  string  `json:"screenshot"`
+}
+
 var websites = []Website{
 	{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 8, "www.beautyfeatures.ie_.png"},
 	{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8, "www.lookfantastic.ie_.png"},

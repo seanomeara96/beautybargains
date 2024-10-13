@@ -148,3 +148,26 @@ func (h *Handler) Unauthorized(w http.ResponseWriter, r *http.Request) error {
 
 	return h.render.Page(w, "unauthorizedpage", map[string]any{})
 }
+
+func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) error {
+	coupons, err := h.service.GetCoupons()
+	if err != nil {
+		return err
+	}
+
+	type WebsiteCoupon struct {
+		Coupon  CouponCode
+		Website Website
+	}
+	data := make([]WebsiteCoupon, len(coupons))
+	for i, coupon := range coupons {
+		data[i].Coupon = coupon
+		site, err := getWebsiteByID(coupon.WebsiteID)
+		if err != nil {
+			return err
+		}
+		data[i].Website = site
+	}
+
+	return h.render.Page(w, "couponcodes", map[string]any{"WebsiteCoupons": data})
+}

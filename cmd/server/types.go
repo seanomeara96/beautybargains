@@ -103,16 +103,6 @@ type BannerData struct {
 	Href           string
 }
 
-// Website struct matching the Websites table
-type Website struct {
-	WebsiteID   int     `json:"website_id"`
-	WebsiteName string  `json:"website_name"`
-	URL         string  `json:"url"`
-	Country     string  `json:"country"`
-	Score       float64 `json:"score"`
-	Screenshot  string  `json:"screenshot"`
-}
-
 /* models begin */
 type Mode string
 type contextKey string
