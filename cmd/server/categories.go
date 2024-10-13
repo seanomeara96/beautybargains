@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 )
 
@@ -12,66 +11,27 @@ type Category struct {
 	URL      string
 }
 
-// NewService initializes the Service with prepared statements
-func NewService(db *sql.DB) (*Service, error) {
-	s := &Service{db: db}
-
-	var err error
-
-	// Prepare statements on initialization
-	s.createCategoryStmt, err = db.Prepare(`INSERT INTO categories (parent_id, name, url) VALUES (?, ?, ?)`)
-	if err != nil {
-		return nil, fmt.Errorf("error preparing createCategoryStmt: %v", err)
-	}
-
-	s.getCategoryStmt, err = db.Prepare(`SELECT id, parent_id, name, url FROM categories WHERE id = ?`)
-	if err != nil {
-		return nil, fmt.Errorf("error preparing getCategoryStmt: %v", err)
-	}
-
-	s.updateCategoryStmt, err = db.Prepare(`UPDATE categories SET parent_id = ?, name = ?, url = ? WHERE id = ?`)
-	if err != nil {
-		return nil, fmt.Errorf("error preparing updateCategoryStmt: %v", err)
-	}
-
-	s.deleteCategoryStmt, err = db.Prepare(`DELETE FROM categories WHERE id = ?`)
-	if err != nil {
-		return nil, fmt.Errorf("error preparing deleteCategoryStmt: %v", err)
-	}
-
-	return s, nil
-}
-
-// Close closes all prepared statements
-func (s *Service) Close() error {
-	if s.createCategoryStmt != nil {
-		s.createCategoryStmt.Close()
-	}
-	if s.getCategoryStmt != nil {
-		s.getCategoryStmt.Close()
-	}
-	if s.updateCategoryStmt != nil {
-		s.updateCategoryStmt.Close()
-	}
-	if s.deleteCategoryStmt != nil {
-		s.deleteCategoryStmt.Close()
-	}
-	return nil
-}
-
 // CreateCategory inserts a new category into the database
 func (s *Service) CreateCategory(c *Category) error {
 	// Use the prepared statement to improve performance
 	result, err := s.createCategoryStmt.Exec(c.ParentID, c.Name, c.URL)
 	if err != nil {
-		return fmt.Errorf("error creating category: %v", err)
+		return fmt.Errorf("error creating category (ParentID: %d, Name: %s, URL: %s): %v", c.ParentID, c.Name, c.URL, err)
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("error getting last insert ID: %v", err)
+		return fmt.Errorf("error getting last insert ID for category (ParentID: %d, Name: %s, URL: %s): %v", c.ParentID, c.Name, c.URL, err)
 	}
 	c.ID = int(id)
 	return nil
+}
+
+func (s *Service) CategoryExists(name string) (bool, error) {
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(id) FROM categories WHERE name = ?`, name).Scan(&count); err != nil {
+		return false, fmt.Errorf("error checking if category exists (Name: %s): %v", name, err)
+	}
+	return count > 0, nil
 }
 
 // GetCategory retrieves a category by ID
@@ -80,9 +40,28 @@ func (s *Service) GetCategory(id int) (*Category, error) {
 	// Use the prepared statement to avoid re-parsing the query
 	err := s.getCategoryStmt.QueryRow(id).Scan(&c.ID, &c.ParentID, &c.Name, &c.URL)
 	if err != nil {
-		return nil, fmt.Errorf("error getting category: %v", err)
+		return nil, fmt.Errorf("error getting category (ID: %d): %v", id, err)
 	}
 	return c, nil
+}
+
+func (s *Service) GetCategoryByName(catName string) (*Category, error) {
+	var c Category
+	err := s.db.QueryRow(`SELECT
+		id,
+		parent_id,
+		name,
+		url
+	FROM
+		categories
+	WHERE
+		name = ?`,
+		catName,
+	).Scan(&c.ID, &c.ParentID, &c.Name, &c.URL)
+	if err != nil {
+		return nil, fmt.Errorf("error getting category by name (Name: %s): %v", catName, err)
+	}
+	return &c, nil
 }
 
 // UpdateCategory updates an existing category in the database
@@ -90,7 +69,7 @@ func (s *Service) UpdateCategory(c *Category) error {
 	// Use the prepared statement to improve performance
 	_, err := s.updateCategoryStmt.Exec(c.ParentID, c.Name, c.URL, c.ID)
 	if err != nil {
-		return fmt.Errorf("error updating category: %v", err)
+		return fmt.Errorf("error updating category (ID: %d, ParentID: %d, Name: %s, URL: %s): %v", c.ID, c.ParentID, c.Name, c.URL, err)
 	}
 	return nil
 }
@@ -100,7 +79,7 @@ func (s *Service) DeleteCategory(id int) error {
 	// Use the prepared statement to avoid re-parsing the query
 	_, err := s.deleteCategoryStmt.Exec(id)
 	if err != nil {
-		return fmt.Errorf("error deleting category: %v", err)
+		return fmt.Errorf("error deleting category (ID: %d): %v", id, err)
 	}
 	return nil
 }
@@ -111,7 +90,7 @@ func (s *Service) GetCategories(limit, offset int) ([]Category, error) {
 	query := fmt.Sprintf(`SELECT id, parent_id, name, url FROM categories LIMIT %d OFFSET %d`, limit, offset)
 	rows, err := s.db.Query(query)
 	if err != nil {
-		return nil, fmt.Errorf("error listing categories: %v", err)
+		return nil, fmt.Errorf("error listing categories (Limit: %d, Offset: %d): %v", limit, offset, err)
 	}
 	defer rows.Close()
 

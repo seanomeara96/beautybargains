@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
@@ -21,19 +22,22 @@ const (
 func main() {
 
 	if err := godotenv.Load(); err != nil {
-		log.Fatal(err)
+		log.Fatal(fmt.Errorf("failed to load .env file: %w", err))
 	}
 
 	db, err := sql.Open("sqlite3", "main.db")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(fmt.Errorf("failed to open database: %w", err))
 	}
 	defer db.Close()
 
-	service := &Service{db: db}
+	service, err := NewService(db)
+	if err != nil {
+		log.Fatal(fmt.Errorf("failed to create new service: %w", err))
+	}
 	defer service.Close()
 
-	_skip := flag.Bool("skip", false, "skip bannner extraction and hashtag processing")
+	_skip := flag.Bool("skip", false, "skip bannner extraction and hashtag jobs")
 	_port := flag.String("port", "", "http port")
 	_mode := flag.String("mode", "", "deployment mode")
 
@@ -45,19 +49,25 @@ func main() {
 
 	if !skip {
 		go func() {
-			ticker := time.NewTicker(5 * time.Minute)
-			process(service)
 			for {
-				<-ticker.C
-				process(service)
+				log.Println("start jobs")
+				if err := extractOffersFromBanners(service); err != nil {
+					reportErr(fmt.Errorf("failed to extract offers from banners: %w", err))
+				}
+				if err := processHashtags(service); err != nil {
+					reportErr(fmt.Errorf("failed to process hashtags: %w", err))
+				}
+				if err := scorePosts(service); err != nil {
+					reportErr(fmt.Errorf("failed to score posts: %w", err))
+				}
+				log.Println("finished jobs")
+				time.Sleep(5 * time.Minute)
 			}
 		}()
-	} else {
-		log.Println("skipping banner extractions and hashtag process")
 	}
 
 	if err := server(port, mode, service); err != nil {
-		log.Fatal(err)
+		log.Fatal(fmt.Errorf("server error: %w", err))
 	}
 
 }
