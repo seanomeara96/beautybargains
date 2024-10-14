@@ -40,13 +40,16 @@
   <p class="mb-6">
     We are keeping our eyes on these stores and are adding more soon
   </p>
-  <ul class="space-y-2 flex flex-col md:flex-row items-stretch gap-6">
+  <ul 
+    class="space-y-2 grid gap-6"
+    style="grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));"
+  >
     {{
       range.Websites
     }}
     <li class="p-6 rounded-lg shadow-md">
       <a
-        href="/store/{{ lower .WebsiteName }}/"
+        href="/website/{{ .Path }}"
         class="text-gray-800 hover:text-yellow-500 transition duration-300"
         ><strong>{{ .WebsiteName }}</strong></a
       >

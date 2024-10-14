@@ -22,7 +22,9 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 
 	hashtagQuery := r.URL.Query().Get("hashtag")
 
-	website, _ := getWebsiteByName(r.PathValue("websiteName"))
+	websitePath := r.PathValue("websitePath")
+
+	website, _ := getWebsiteByPath(websitePath)
 
 	var postIDs []int
 	if hashtagQuery != "" {

@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/gosimple/slug"
 )
 
 // Website struct matching the Websites table
@@ -13,13 +15,14 @@ type Website struct {
 	Country     string  `json:"country"`
 	Score       float64 `json:"score"`
 	Screenshot  string  `json:"screenshot"`
+	Path        string  `json:"path"`
 }
 
 var websites = []Website{
-	{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 8, "www.beautyfeatures.ie_.png"},
-	{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8, "www.lookfantastic.ie_.png"},
-	{3, "Millies", "https://millies.ie", "IE", 9, "millies.ie_.png"},
-	{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 1, "www.mccauley.ie_.png"},
+	{1, "BeautyFeatures", "https://www.beautyfeatures.ie", "IE", 8, "www.beautyfeatures.ie_.png", slug.Make("BeautyFeatures")},
+	{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8, "www.lookfantastic.ie_.png", slug.Make("LookFantastic")},
+	{3, "Millies", "https://millies.ie", "IE", 9, "millies.ie_.png", slug.Make("Millies")},
+	{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 1, "www.mccauley.ie_.png", slug.Make("McCauley Pharmacy")},
 }
 
 /* website funcs*/
@@ -34,7 +37,6 @@ func getWebsiteByID(website_id int) (Website, error) {
 	return Website{}, fmt.Errorf("no website with id %d", website_id)
 }
 
-// Retrieve a website by its ID from the Websites table
 func getWebsiteByName(websiteName string) (Website, error) {
 	for _, website := range getWebsites(0, 0) {
 		if strings.EqualFold(website.WebsiteName, websiteName) {
@@ -42,6 +44,15 @@ func getWebsiteByName(websiteName string) (Website, error) {
 		}
 	}
 	return Website{}, fmt.Errorf("no website with name %s", websiteName)
+}
+
+func getWebsiteByPath(path string) (Website, error) {
+	for _, website := range getWebsites(0, 0) {
+		if website.Path == path {
+			return website, nil
+		}
+	}
+	return Website{}, fmt.Errorf("no website with name %s", path)
 }
 
 func getWebsites(limit, offset int) []Website {
