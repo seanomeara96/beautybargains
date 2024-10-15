@@ -1,0 +1,31 @@
+name: Deploy to DigitalOcean VPS
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install sshpass
+      run: sudo apt-get install -y sshpass
+
+    - name: Deploy to VPS using password
+      env:
+        SSH_USER: ${{ secrets.VPS_USERNAME }}
+        SSH_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+        VPS_IP: ${{ secrets.VPS_IP }}
+      run: |
+        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $SSH_USER@$VPS_IP << 'EOF'
+          cd /root/beautybargains/
+          git pull origin master
+          make build
+          systemctl restart beautybargains.service
+        EOF
+
