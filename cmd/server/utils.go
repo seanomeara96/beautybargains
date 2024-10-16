@@ -198,6 +198,18 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 			}
 			bannerData = append(bannerData, mc)
 		})
+
+	case 5:
+		doc.Find(`.slideshow-slide .background-image--mobile img`).Each(func(i int, s *goquery.Selection) {
+
+			if imgSrc, found := s.Attr("src"); found {
+				if strings.HasPrefix(imgSrc, "//") {
+					imgSrc = "https:" + imgSrc
+				}
+
+				bannerData = append(bannerData, BannerData{Src: imgSrc})
+			}
+		})
 	default:
 		return nil, fmt.Errorf("could not find banner extraction rules for website %s", website.WebsiteName)
 	}

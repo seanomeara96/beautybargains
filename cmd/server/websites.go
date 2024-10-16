@@ -23,6 +23,7 @@ var websites = []Website{
 	{2, "LookFantastic", "https://lookfantastic.ie", "IE", 8, "www.lookfantastic.ie_.png", slug.Make("LookFantastic")},
 	{3, "Millies", "https://millies.ie", "IE", 9, "millies.ie_.png", slug.Make("Millies")},
 	{4, "McCauley Pharmacy", "https://www.mccauley.ie/", "IE", 1, "www.mccauley.ie_.png", slug.Make("McCauley Pharmacy")},
+	{5, "Skin Shop", "https://skinshop.ie/", "IE", 5, "skinshop.ie_.png", slug.Make("skin shop")},
 }
 
 /* website funcs*/
