@@ -200,7 +200,19 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 		})
 
 	case 5:
+		// skin shop
 		doc.Find(`.slideshow-slide .background-image--mobile img`).Each(func(i int, s *goquery.Selection) {
+
+			if imgSrc, found := s.Attr("src"); found {
+				if strings.HasPrefix(imgSrc, "//") {
+					imgSrc = "https:" + imgSrc
+				}
+
+				bannerData = append(bannerData, BannerData{Src: imgSrc})
+			}
+		})
+	case 6:
+		doc.Find(".homepage-slider img.desktop-hide").Each(func(i int, s *goquery.Selection) {
 
 			if imgSrc, found := s.Attr("src"); found {
 				if strings.HasPrefix(imgSrc, "//") {

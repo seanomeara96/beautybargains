@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestExtractWebsiteBannerURLs(t *testing.T) {
-	banners, err := extractWebsiteBannerURLs(websites[4])
+	banners, err := extractWebsiteBannerURLs(websites[5])
 	if err != nil {
 		t.Fatal(err)
 	}
