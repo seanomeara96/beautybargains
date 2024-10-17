@@ -28,7 +28,8 @@ func (s *Service) CreateCouponCode(coupon CouponCode) error {
 	if coupon.WebsiteID == 0 {
 		return fmt.Errorf("expected a valid website ID got 0 instead")
 	}
-	_, err := s.db.Exec(`INSERT INTO coupon_codes(
+	_, err := s.db.Exec(`
+	INSERT INTO coupon_codes(
 		code,
 		description,
 		valid_until,

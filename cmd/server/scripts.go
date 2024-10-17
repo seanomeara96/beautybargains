@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -107,9 +109,9 @@ func extractUniqueBanners(service *Service, website Website) ([]BannerData, erro
 	return uniqueBanners, nil
 }
 
-func saveOfferDescriptionAsPost(service *Service, website Website, banner BannerData, description string) (int, error) {
+func saveOfferDescriptionAsPost(tx *sql.Tx, website Website, banner BannerData, description string) (int, error) {
 	// I picked 8 randomly for author id
-	res, err := service.db.Exec(
+	res, err := tx.Exec(
 		`INSERT INTO posts(
 			website_id,
 			src_url,
@@ -149,73 +151,220 @@ func extractOffersFromBanners(service *Service) error {
 
 			offer, err := analyzeOffer(website.WebsiteName, banner)
 			if err != nil {
-				return fmt.Errorf("error getting offer description from chatgpt for website %s and banner %s: %w", website.WebsiteName, banner.Src, err)
+				log.Printf("error getting offer description from chatgpt for website %s and banner %s: %w", website.WebsiteName, banner.Src, err)
+				continue
 			}
 
-			postID, err := saveOfferDescriptionAsPost(service, website, banner, offer.Description)
+			tx, err := service.db.Begin()
 			if err != nil {
-				return fmt.Errorf("error saving offer description as post for website %s: %w", website.WebsiteName, err)
+				return err
 			}
 
-			if err := savePostCategories(service, postID, offer.Categories); err != nil {
-				return fmt.Errorf("error saving post categories for post %d: %w", postID, err)
+			postID, err := saveOfferDescriptionAsPost(tx, website, banner, offer.Description)
+			if err != nil {
+				tx.Rollback()
+				log.Printf("error saving offer description as post for website %s: %w", website.WebsiteName, err)
+				continue
 			}
 
-			if err := savePostBrands(service, postID, offer.Brands); err != nil {
-				return fmt.Errorf("error saving post brands for post %d: %w", postID, err)
+			if err := savePostCategories(tx, postID, offer.Categories); err != nil {
+				tx.Rollback()
+				log.Printf("error saving post categories for post %d: %w", postID, err)
+				continue
 			}
 
-			if err := saveOfferCouponCodes(service, website, offer.CouponCodes); err != nil {
-				return fmt.Errorf("error saving offer coupon codes for website %s: %w", website.WebsiteName, err)
+			if err := savePostBrands(tx, postID, offer.Brands); err != nil {
+				tx.Rollback()
+				log.Printf("error saving post brands for post %d: %w", postID, err)
+				continue
+			}
+
+			if err := saveOfferCouponCodes(tx, website, offer.CouponCodes); err != nil {
+				tx.Rollback()
+				log.Printf("error saving offer coupon codes for website %s: %w", website.WebsiteName, err)
+				continue
+			}
+
+			if err := tx.Commit(); err != nil {
+				return err
 			}
 		}
-
 	}
-
 	return nil
 }
 
-func savePostCategories(service *Service, postID int, offerCategories []string) error {
+func savePostCategories(tx *sql.Tx, postID int, offerCategories []string) error {
 	for _, catName := range offerCategories {
-		exists, err := service.CategoryExists(catName)
-		if err != nil {
-			return fmt.Errorf("error checking if category '%s' exists: %w", catName, err)
+
+		var count int
+		if err := tx.QueryRow(`
+		SELECT 
+			COUNT(id) 
+		FROM 
+			categories 
+		WHERE 
+			name = ?
+		`, catName).Scan(&count); err != nil {
+			return fmt.Errorf(
+				"error checking if category exists (Name: %s): %v",
+				catName,
+				err,
+			)
 		}
+
+		exists := count > 0
+
 		if !exists {
-			if err := service.CreateCategory(&Category{0, 0, catName, slug.Make(catName)}); err != nil {
-				return fmt.Errorf("error creating category '%s': %w", catName, err)
+			// Use the prepared statement to improve performance
+			_, err := tx.Exec(`
+			INSERT INTO categories (
+				parent_id, 
+				name, 
+				url,
+			) VALUES (?, ?, ?)`,
+				0,
+				catName,
+				slug.Make(catName),
+			)
+			if err != nil {
+				return fmt.Errorf(
+					"error creating category (ParentID: %d, Name: %s, URL: %s): %v",
+					0,
+					catName,
+					slug.Make(catName),
+					err,
+				)
 			}
 		}
-		if err := service.CreatePostCategoryRelationshipByCategoryName(postID, catName); err != nil {
-			return fmt.Errorf("error creating post-category relationship for post %d and category '%s': %w", postID, catName, err)
+
+		var c Category
+		if err := tx.QueryRow(`
+		SELECT
+			id,
+			parent_id,
+			name,
+			url
+		FROM
+			categories
+		WHERE
+			name = ?`,
+			catName,
+		).Scan(
+			&c.ID,
+			&c.ParentID,
+			&c.Name,
+			&c.URL,
+		); err != nil {
+			return fmt.Errorf(
+				"error getting category by name (Name: %s): %v",
+				catName,
+				err,
+			)
+		}
+
+		if _, err := tx.Exec(`
+		INSERT INTO post_categories (
+			post_id,
+			category_id
+		) VALUES (?, ?)`,
+			postID, c.ID,
+		); err != nil {
+			return fmt.Errorf(
+				"failed to insert post category relationship: %w",
+				err,
+			)
 		}
 	}
 	return nil
 }
 
-func savePostBrands(service *Service, postID int, offerBrands []string) error {
+func savePostBrands(tx *sql.Tx, postID int, offerBrands []string) error {
 	for _, brandName := range offerBrands {
-		exists, err := service.BrandExists(brandName)
+		var count int
+		err := tx.QueryRow(`
+		SELECT
+			COUNT(id)
+		FROM
+			brands
+		WHERE
+			name = ?`,
+			brandName,
+		).Scan(&count)
 		if err != nil {
-			return fmt.Errorf("error checking if brand '%s' exists: %w", brandName, err)
+			return err
 		}
+		exists := count > 0
 		if !exists {
-			if err := service.CreateBrand(Brand{0, brandName, slug.Make(brandName), 0}); err != nil {
-				return fmt.Errorf("error creating brand '%s': %w", brandName, err)
+			_, err := tx.Exec(`
+			INSERT INTO brands (
+				name,
+				path,
+				score )
+			VALUES
+				(?, ?, ?)`,
+				brandName, slug.Make(brandName), 0,
+			)
+			if err != nil {
+				return fmt.Errorf("could not create brand: %w", err)
 			}
+
 		}
-		if err := service.CreatePostBrandRelationshipByBrandName(postID, brandName); err != nil {
-			return fmt.Errorf("error creating post-brand relationship for post %d and brand '%s': %w", postID, brandName, err)
+		var brand Brand
+		err = tx.QueryRow(`
+		SELECT
+			id,
+			name,
+			path,
+			score
+		FROM
+			brands
+		WHERE
+			name = ?`, brandName).Scan(
+			&brand.ID,
+			&brand.Name,
+			&brand.Path,
+			&brand.Score,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to get brand by name: %w", err)
+		}
+		_, err = tx.Exec(`INSERT INTO post_brands(
+				post_id,
+				brand_id
+			) VALUES (?, ?)`,
+			postID,
+			brand.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert into post_brands: %w", err)
 		}
 	}
 	return nil
 }
 
-func saveOfferCouponCodes(service *Service, website Website, offerCouponCodes []CouponCode) error {
+func saveOfferCouponCodes(tx *sql.Tx, website Website, offerCouponCodes []CouponCode) error {
 	for _, coupon := range offerCouponCodes {
 		coupon.WebsiteID = website.WebsiteID
-		if err := service.CreateCouponCode(coupon); err != nil {
-			return fmt.Errorf("error creating coupon code for website %s: %w", website.WebsiteName, err)
+		if coupon.WebsiteID == 0 {
+			return fmt.Errorf("expected a valid website ID got 0 instead")
+		}
+		_, err := tx.Exec(`
+		INSERT INTO coupon_codes(
+			code,
+			description,
+			valid_until,
+			first_seen,
+			website_id
+		) VALUES (?,?,?,?,?)`,
+			coupon.Code,
+			coupon.Description,
+			coupon.ValidUntil,
+			time.Now(),
+			coupon.WebsiteID,
+		)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

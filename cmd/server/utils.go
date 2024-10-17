@@ -84,21 +84,23 @@ func lower(s string) string {
 // to replace existing method. supports 'supporting text'
 // for websites like lookfantastic and cult beauty that have carousels with text not embedded in the image
 // can be passed to the llm for additional context
-func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
-	res, err := http.Get(website.URL)
+
+func getGoQueryPageDocument(url string) (*goquery.Document, error) {
+	res, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("error sending get request to extract banner urls %w", err)
 	}
-
 	defer res.Body.Close()
-
 	// Load the HTML document
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing document with go query %w", err)
 	}
+	return doc, nil
+}
 
-	re, err := regexp.Compile(`\s+`)
+func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
+	doc, err := getGoQueryPageDocument(website.URL)
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +113,14 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 		doc.Find(".som-carousel a").Each(func(i int, s *goquery.Selection) {
 			bf := BannerData{}
 
+			regex, err := regexp.Compile(`\s+`)
+			if err != nil {
+				log.Println("Warning regex for beautyfeatures could not compile")
+				return
+			}
+
 			if text := s.Text(); text != "" {
-				text := re.ReplaceAllString(text, " ")
+				text := regex.ReplaceAllString(text, " ")
 
 				bf.SupportingText = text
 			}
@@ -148,9 +156,14 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 
 				lf.Src = imgSrc
 			}
+			regex, err := regexp.Compile(`\s+`)
+			if err != nil {
+				log.Println("Warning regex for lookfantastic could not compile")
+				return
+			}
 
 			if text := strings.TrimSpace(s.Text()); text != "" {
-				text := re.ReplaceAllString(text, " ")
+				text := regex.ReplaceAllString(text, " ")
 
 				lf.SupportingText = text
 			}
@@ -225,6 +238,5 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 	default:
 		return nil, fmt.Errorf("could not find banner extraction rules for website %s", website.WebsiteName)
 	}
-
 	return bannerData, nil
 }
