@@ -67,7 +67,7 @@ const responseSchema = `{
   "required": ["description", "coupon_codes", "categories", "brands"]
 }`
 
-var mySchema = chat.MySchema{responseSchema}
+var mySchema = chat.MySchema{Raw: responseSchema}
 
 /* chat service begins */
 func analyzeOffer(websiteName string, banner BannerData) (*OfferDescriptionResponse, error) {

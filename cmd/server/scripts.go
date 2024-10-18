@@ -11,8 +11,69 @@ import (
 	"github.com/gosimple/slug"
 )
 
-func processHashtags(service *Service) error {
+func processPostHashtags(service *Service, p Post) error {
+	// Find all matches in the post
+	matches := regexp.MustCompile(`#(\w+)`).FindAllStringSubmatch(p.Description, -1)
 
+	// Extract hashtags from the matches
+	for _, match := range matches {
+		if len(match) < 2 {
+			return fmt.Errorf("invalid hashtag match: %v", match)
+		}
+
+		phrase := strings.ToLower(match[1])
+		exists, err := service.doesHashtagExistByPhrase(phrase)
+		if err != nil {
+			return fmt.Errorf("failed to count hashtags for phrase '%s': %w", phrase, err)
+		}
+
+		/*
+			If the phrase exists we want to check if it has a relationship to this post
+			If it does not have a relationship we need to save the relationship
+			If the phrase does not exist we need to save the phrase and the relationship.
+		*/
+		if exists {
+			hashtagID, err := service.getHashtagIDByPhrase(phrase)
+			if err != nil {
+				return fmt.Errorf("failed to get hashtag ID for phrase '%s': %w", phrase, err)
+			}
+
+			var relationshipCount int
+			if err := service.db.QueryRow(`
+			SELECT 
+				count(*) 
+			FROM 
+				post_hashtags 
+			WHERE 
+				post_id = ? 
+			AND 
+				hashtag_id = ?`,
+				p.ID, hashtagID,
+			).Scan(&relationshipCount); err != nil {
+				return fmt.Errorf("could not count relationships between post %d & hashtag %d: %w", p.ID, hashtagID, err)
+			}
+
+			if relationshipCount == 0 {
+				err = service.insertPostHashtagRelationship(p.ID, hashtagID)
+				if err != nil {
+					return fmt.Errorf("failed to insert post-hashtag relationship for post %d and hashtag %d: %w", p.ID, hashtagID, err)
+				}
+			}
+		} else {
+			newTagID, err := service.insertHashtag(&Hashtag{Phrase: phrase})
+			if err != nil {
+				return fmt.Errorf("failed to insert new hashtag '%s': %w", phrase, err)
+			}
+			err = service.insertPostHashtagRelationship(p.ID, newTagID)
+			if err != nil {
+				return fmt.Errorf("failed to insert post-hashtag relationship for post %d and new hashtag %d: %w", p.ID, newTagID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func processHashtags(service *Service) error {
 	/*
 		Get all posts. At some point I will have to implement a way to filter for posts
 		that have not already been processed
@@ -22,62 +83,10 @@ func processHashtags(service *Service) error {
 		return fmt.Errorf("failed to get posts: %w", err)
 	}
 
-	// Define a regular expression pattern for hashtags
-	pattern := regexp.MustCompile(`#(\w+)`)
-
 	for _, p := range posts {
-		// Find all matches in the post
-		matches := pattern.FindAllStringSubmatch(p.Description, -1)
-
-		// Extract hashtags from the matches
-		for _, match := range matches {
-			if len(match) < 2 {
-				return fmt.Errorf("invalid hashtag match: %v", match)
-			}
-			phrase := strings.ToLower(match[1])
-			count, err := service.countHashtagsByPhrase(phrase)
-			if err != nil {
-				return fmt.Errorf("failed to count hashtags for phrase '%s': %w", phrase, err)
-			}
-			exists := count > 0
-
-			/*
-				If the phrase exists we want to check if it has a relationship to this post
-				If it does not have a relationship we need to save the relationship
-				If the phrase does not exist we need to save the phrase and the relationship.
-			*/
-			if exists {
-				hashtagID, err := service.getHashtagIDByPhrase(phrase)
-				if err != nil {
-					return fmt.Errorf("failed to get hashtag ID for phrase '%s': %w", phrase, err)
-				}
-
-				q := `SELECT count(*) FROM post_hashtags WHERE post_id = ? AND hashtag_id = ?`
-
-				var count int
-				if err := service.db.QueryRow(q, p.ID, hashtagID).Scan(&count); err != nil {
-					return fmt.Errorf("could not count relationships between post %d & hashtag %d: %w", p.ID, hashtagID, err)
-				}
-
-				noRelationShip := count < 1
-				if noRelationShip {
-					err = service.insertPostHashtagRelationship(p.ID, hashtagID)
-					if err != nil {
-						return fmt.Errorf("failed to insert post-hashtag relationship for post %d and hashtag %d: %w", p.ID, hashtagID, err)
-					}
-				}
-			} else {
-				newTagID, err := service.insertHashtag(&Hashtag{Phrase: phrase})
-				if err != nil {
-					return fmt.Errorf("failed to insert new hashtag '%s': %w", phrase, err)
-				}
-				err = service.insertPostHashtagRelationship(p.ID, newTagID)
-				if err != nil {
-					return fmt.Errorf("failed to insert post-hashtag relationship for post %d and new hashtag %d: %w", p.ID, newTagID, err)
-				}
-			}
+		if err := processPostHashtags(service, p); err != nil {
+			return err
 		}
-
 	}
 	return nil
 }
@@ -92,9 +101,20 @@ func extractUniqueBanners(service *Service, website Website) ([]BannerData, erro
 	for _, banner := range banners {
 
 		var bannerCount int
-		err := service.db.QueryRow(`SELECT count(id) FROM posts WHERE src_url = ?`, banner.Src).Scan(&bannerCount)
-		if err != nil {
-			return nil, fmt.Errorf("error checking existence of banner %s: %w", banner.Src, err)
+		if err := service.db.QueryRow(`
+		SELECT 
+			count(id) 
+		FROM 
+			posts 
+		WHERE 
+			src_url = ?`,
+			banner.Src,
+		).Scan(&bannerCount); err != nil {
+			return nil, fmt.Errorf(
+				"error checking existence of banner %s: %w",
+				banner.Src,
+				err,
+			)
 		}
 
 		bannerExists := bannerCount > 0
@@ -112,13 +132,16 @@ func extractUniqueBanners(service *Service, website Website) ([]BannerData, erro
 func saveOfferDescriptionAsPost(tx *sql.Tx, website Website, banner BannerData, description string) (int, error) {
 	// I picked 8 randomly for author id
 	res, err := tx.Exec(
-		`INSERT INTO posts(
-			website_id,
-			src_url,
-			author_id,
-			description,
-			timestamp
-		) VALUES (? , ? , ?, ?, ?)`,
+		`INSERT INTO 
+			posts (
+				website_id,
+				src_url,
+				author_id,
+				description,
+				timestamp
+			) 
+		VALUES 
+			(? , ? , ?, ?, ?)`,
 		website.WebsiteID,
 		banner.Src,
 		getRandomPersona().ID,
@@ -193,11 +216,9 @@ func extractOffersFromBanners(service *Service) error {
 	return nil
 }
 
-func savePostCategories(tx *sql.Tx, postID int, offerCategories []string) error {
-	for _, catName := range offerCategories {
-
-		var count int
-		if err := tx.QueryRow(`
+func savePostCategory(tx *sql.Tx, postID int, catName string) error {
+	var count int
+	if err := tx.QueryRow(`
 		SELECT 
 			COUNT(id) 
 		FROM 
@@ -205,40 +226,39 @@ func savePostCategories(tx *sql.Tx, postID int, offerCategories []string) error 
 		WHERE 
 			name = ?
 		`, catName).Scan(&count); err != nil {
+		return fmt.Errorf(
+			"error checking if category exists (Name: %s): %v",
+			catName,
+			err,
+		)
+	}
+
+	exists := count > 0
+
+	if !exists {
+		// Use the prepared statement to improve performance
+		_, err := tx.Exec(`
+			INSERT INTO
+				categories (parent_id, name, url)
+			VALUES
+				(?, ?, ?)`,
+			0,
+			catName,
+			slug.Make(catName),
+		)
+		if err != nil {
 			return fmt.Errorf(
-				"error checking if category exists (Name: %s): %v",
-				catName,
-				err,
-			)
-		}
-
-		exists := count > 0
-
-		if !exists {
-			// Use the prepared statement to improve performance
-			_, err := tx.Exec(`
-			INSERT INTO categories (
-				parent_id, 
-				name, 
-				url
-			) VALUES (?, ?, ?)`,
+				"error creating category (ParentID: %d, Name: %s, URL: %s): %v",
 				0,
 				catName,
 				slug.Make(catName),
+				err,
 			)
-			if err != nil {
-				return fmt.Errorf(
-					"error creating category (ParentID: %d, Name: %s, URL: %s): %v",
-					0,
-					catName,
-					slug.Make(catName),
-					err,
-				)
-			}
 		}
+	}
 
-		var c Category
-		if err := tx.QueryRow(`
+	var c Category
+	if err := tx.QueryRow(`
 		SELECT
 			id,
 			parent_id,
@@ -248,96 +268,107 @@ func savePostCategories(tx *sql.Tx, postID int, offerCategories []string) error 
 			categories
 		WHERE
 			name = ?`,
+		catName,
+	).Scan(
+		&c.ID,
+		&c.ParentID,
+		&c.Name,
+		&c.URL,
+	); err != nil {
+		return fmt.Errorf(
+			"error getting category by name (Name: %s): %v",
 			catName,
-		).Scan(
-			&c.ID,
-			&c.ParentID,
-			&c.Name,
-			&c.URL,
-		); err != nil {
-			return fmt.Errorf(
-				"error getting category by name (Name: %s): %v",
-				catName,
-				err,
-			)
-		}
+			err,
+		)
+	}
 
-		if _, err := tx.Exec(`
-		INSERT INTO post_categories (
-			post_id,
-			category_id
-		) VALUES (?, ?)`,
-			postID, c.ID,
-		); err != nil {
-			return fmt.Errorf(
-				"failed to insert post category relationship: %w",
-				err,
-			)
+	if _, err := tx.Exec(`
+		INSERT INTO
+			post_categories (post_id, category_id)
+		VALUES
+			(?, ?)`,
+		postID, c.ID,
+	); err != nil {
+		return fmt.Errorf(
+			"failed to insert post category relationship: %w",
+			err,
+		)
+	}
+	return nil
+}
+
+func savePostCategories(tx *sql.Tx, postID int, offerCategories []string) error {
+	for _, catName := range offerCategories {
+		if err := savePostCategory(tx, postID, catName); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func savePostBrands(tx *sql.Tx, postID int, offerBrands []string) error {
-	for _, brandName := range offerBrands {
-		var count int
-		err := tx.QueryRow(`
+func savePostBrand(tx *sql.Tx, postID int, brandName string) error {
+	var count int
+	if err := tx.QueryRow(`
 		SELECT
 			COUNT(id)
 		FROM
 			brands
 		WHERE
 			name = ?`,
-			brandName,
-		).Scan(&count)
-		if err != nil {
+		brandName,
+	).Scan(&count); err != nil {
+		return err
+	}
+	exists := count > 0
+	if !exists {
+		if _, err := tx.Exec(`
+		INSERT INTO
+			brands (name, path, score)
+		VALUES
+			(?, ?, ?)`,
+			brandName, slug.Make(brandName), 0,
+		); err != nil {
+			return fmt.Errorf("could not create brand: %w", err)
+		}
+
+	}
+	var brand Brand
+	if err := tx.QueryRow(`
+	SELECT
+		id,
+		name,
+		path,
+		score
+	FROM
+		brands
+	WHERE
+		name = ?
+	`, brandName).Scan(
+		&brand.ID,
+		&brand.Name,
+		&brand.Path,
+		&brand.Score,
+	); err != nil {
+		return fmt.Errorf("failed to get brand by name: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+	INSERT INTO
+		post_brands (post_id, brand_id)
+	VALUES
+		(?, ?)`,
+		postID,
+		brand.ID,
+	); err != nil {
+		return fmt.Errorf("failed to insert into post_brands: %w", err)
+	}
+	return nil
+}
+
+func savePostBrands(tx *sql.Tx, postID int, offerBrands []string) error {
+	for _, brandName := range offerBrands {
+		if err := savePostBrand(tx, postID, brandName); err != nil {
 			return err
-		}
-		exists := count > 0
-		if !exists {
-			_, err := tx.Exec(`
-			INSERT INTO brands (
-				name,
-				path,
-				score )
-			VALUES
-				(?, ?, ?)`,
-				brandName, slug.Make(brandName), 0,
-			)
-			if err != nil {
-				return fmt.Errorf("could not create brand: %w", err)
-			}
-
-		}
-		var brand Brand
-		err = tx.QueryRow(`
-		SELECT
-			id,
-			name,
-			path,
-			score
-		FROM
-			brands
-		WHERE
-			name = ?`, brandName).Scan(
-			&brand.ID,
-			&brand.Name,
-			&brand.Path,
-			&brand.Score,
-		)
-
-		if err != nil {
-			return fmt.Errorf("failed to get brand by name: %w", err)
-		}
-		_, err = tx.Exec(`INSERT INTO post_brands(
-				post_id,
-				brand_id
-			) VALUES (?, ?)`,
-			postID,
-			brand.ID,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert into post_brands: %w", err)
 		}
 	}
 	return nil
@@ -349,21 +380,23 @@ func saveOfferCouponCodes(tx *sql.Tx, website Website, offerCouponCodes []Coupon
 		if coupon.WebsiteID == 0 {
 			return fmt.Errorf("expected a valid website ID got 0 instead")
 		}
-		_, err := tx.Exec(`
-		INSERT INTO coupon_codes(
-			code,
-			description,
-			valid_until,
-			first_seen,
-			website_id
-		) VALUES (?,?,?,?,?)`,
+		if _, err := tx.Exec(`
+		INSERT INTO
+			coupon_codes(
+				code,
+				description,
+				valid_until,
+				first_seen,
+				website_id
+			)
+		VALUES
+			(?, ?, ?, ?, ?)`,
 			coupon.Code,
 			coupon.Description,
 			coupon.ValidUntil,
 			time.Now(),
 			coupon.WebsiteID,
-		)
-		if err != nil {
+		); err != nil {
 			return err
 		}
 	}
@@ -384,8 +417,14 @@ func scorePosts(service *Service) error {
 
 		if posts[i].Score != float64(w.Score) {
 			posts[i].Score = float64(w.Score)
-			_, err := service.db.Exec("UPDATE posts SET score = ? WHERE id = ?", posts[i].Score, posts[i].ID)
-			if err != nil {
+			if _, err := service.db.Exec(`
+			UPDATE 
+				posts 
+			SET score = ? 
+			WHERE id = ?`,
+				posts[i].Score,
+				posts[i].ID,
+			); err != nil {
 				return fmt.Errorf("error updating score for post %d: %w", posts[i].ID, err)
 			}
 		}

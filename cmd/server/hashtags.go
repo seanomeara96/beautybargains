@@ -33,6 +33,11 @@ func (s *Service) countHashtagsByPhrase(phrase string) (int, error) {
 	return count, nil
 }
 
+func (s *Service) doesHashtagExistByPhrase(phrase string) (bool, error) {
+	count, err := s.countHashtagsByPhrase(phrase)
+	return count > 0, err
+}
+
 func (s *Service) getHashtagIDByPhrase(phrase string) (int, error) {
 	q := `SELECT id FROM hashtags WHERE phrase = ?`
 	var h int
