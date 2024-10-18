@@ -225,11 +225,23 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 			}
 		})
 	case 6:
+		// cloud 10?
 		doc.Find(".homepage-slider img.desktop-hide").Each(func(i int, s *goquery.Selection) {
 
 			if imgSrc, found := s.Attr("src"); found {
 				if strings.HasPrefix(imgSrc, "//") {
 					imgSrc = "https:" + imgSrc
+				}
+
+				bannerData = append(bannerData, BannerData{Src: imgSrc})
+			}
+		})
+
+	case 7:
+		doc.Find("body > div.home-main > div:nth-child(5) > div .slide-image").Each(func(i int, s *goquery.Selection) {
+			if imgSrc, found := s.Attr("src"); found {
+				if strings.HasPrefix(imgSrc, "/") {
+					imgSrc = website.URL + imgSrc
 				}
 
 				bannerData = append(bannerData, BannerData{Src: imgSrc})

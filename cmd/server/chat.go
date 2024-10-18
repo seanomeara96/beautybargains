@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
+	"beautybargains/internal/chat"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -69,26 +67,10 @@ const responseSchema = `{
   "required": ["description", "coupon_codes", "categories", "brands"]
 }`
 
-type MySchema struct {
-	Raw string
-}
-
-func (s *MySchema) MarshalJSON() ([]byte, error) {
-	return []byte(s.Raw), nil
-}
-
-var mySchema = MySchema{responseSchema}
+var mySchema = chat.MySchema{responseSchema}
 
 /* chat service begins */
 func analyzeOffer(websiteName string, banner BannerData) (*OfferDescriptionResponse, error) {
-	key := os.Getenv("OPENAI_API_KEY")
-	if key == "" {
-		return nil, errors.New("OPENAI_API_KEY env var not set")
-	}
-
-	c := openai.NewClient(key)
-
-	model := openai.GPT4o20240806
 
 	content := []openai.ChatMessagePart{
 		{
@@ -111,9 +93,7 @@ func analyzeOffer(websiteName string, banner BannerData) (*OfferDescriptionRespo
 		ImageURL: &openai.ChatMessageImageURL{URL: banner.Src},
 	})
 
-	res, err := c.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
-		Model:     model,
-		MaxTokens: 1000,
+	requestParams := openai.ChatCompletionRequest{
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:         "user",
@@ -128,17 +108,17 @@ func analyzeOffer(websiteName string, banner BannerData) (*OfferDescriptionRespo
 				Schema:      &mySchema,
 			},
 		},
-	})
+	}
+
+	answer, err := chat.CreateChatCompletion(requestParams)
 	if err != nil {
 		return nil, err
 	}
 
 	var data = new(OfferDescriptionResponse)
-	if err := json.Unmarshal([]byte(res.Choices[0].Message.Content), data); err != nil {
+	if err := json.Unmarshal([]byte(answer), data); err != nil {
 		return nil, err
 	}
 
 	return data, nil
 }
-
-/* chat service ends */

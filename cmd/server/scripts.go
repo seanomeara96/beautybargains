@@ -151,7 +151,7 @@ func extractOffersFromBanners(service *Service) error {
 
 			offer, err := analyzeOffer(website.WebsiteName, banner)
 			if err != nil {
-				log.Printf("error getting offer description from chatgpt for website %s and banner %s: %w", website.WebsiteName, banner.Src, err)
+				log.Printf("error getting offer description from chatgpt for website %s and banner %s: %v", website.WebsiteName, banner.Src, err)
 				continue
 			}
 
@@ -163,25 +163,25 @@ func extractOffersFromBanners(service *Service) error {
 			postID, err := saveOfferDescriptionAsPost(tx, website, banner, offer.Description)
 			if err != nil {
 				tx.Rollback()
-				log.Printf("error saving offer description as post for website %s: %w", website.WebsiteName, err)
+				log.Printf("error saving offer description as post for website %s: %v", website.WebsiteName, err)
 				continue
 			}
 
 			if err := savePostCategories(tx, postID, offer.Categories); err != nil {
 				tx.Rollback()
-				log.Printf("error saving post categories for post %d: %w", postID, err)
+				log.Printf("error saving post categories for post %d: %v", postID, err)
 				continue
 			}
 
 			if err := savePostBrands(tx, postID, offer.Brands); err != nil {
 				tx.Rollback()
-				log.Printf("error saving post brands for post %d: %w", postID, err)
+				log.Printf("error saving post brands for post %d: %v", postID, err)
 				continue
 			}
 
 			if err := saveOfferCouponCodes(tx, website, offer.CouponCodes); err != nil {
 				tx.Rollback()
-				log.Printf("error saving offer coupon codes for website %s: %w", website.WebsiteName, err)
+				log.Printf("error saving offer coupon codes for website %s: %v", website.WebsiteName, err)
 				continue
 			}
 
@@ -220,7 +220,7 @@ func savePostCategories(tx *sql.Tx, postID int, offerCategories []string) error 
 			INSERT INTO categories (
 				parent_id, 
 				name, 
-				url,
+				url
 			) VALUES (?, ?, ?)`,
 				0,
 				catName,
