@@ -255,7 +255,8 @@ func (h *Handler) Unauthorized(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) error {
-	coupons, err := h.service.GetCoupons()
+
+	coupons, err := h.service.GetCoupons(getCouponParams{Limit: 50, Offset: 0})
 	if err != nil {
 		return err
 	}

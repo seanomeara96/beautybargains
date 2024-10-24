@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -51,8 +52,15 @@ func (s *Service) CreateCouponCode(coupon CouponCode) error {
 	return nil
 }
 
-func (s *Service) GetCoupons() ([]CouponCode, error) {
-	rows, err := s.db.Query(`
+type getCouponParams struct {
+	Limit, Offset int
+}
+
+func (s *Service) GetCoupons(params getCouponParams) ([]CouponCode, error) {
+
+	var query strings.Builder
+
+	query.WriteString(`
 	SELECT
 		code,
 		description,
@@ -62,8 +70,22 @@ func (s *Service) GetCoupons() ([]CouponCode, error) {
 	FROM
 		coupon_codes
 	ORDER BY
-		id DESC`,
-	)
+		id DESC`)
+
+	args := []any{}
+	if params.Limit > 0 {
+		query.WriteString(` LIMIT ?`)
+		args = append(args, params.Limit)
+	}
+
+	if params.Offset > 0 {
+		query.WriteString(` OFFSET ?`)
+		args = append(args, params.Offset)
+	}
+
+	fmt.Println(query.String())
+
+	rows, err := s.db.Query(query.String(), args...)
 	if err != nil {
 		return nil, err
 	}
