@@ -29,13 +29,16 @@ func (s *Service) CreateCouponCode(coupon CouponCode) error {
 		return fmt.Errorf("expected a valid website ID got 0 instead")
 	}
 	_, err := s.db.Exec(`
-	INSERT INTO coupon_codes(
-		code,
-		description,
-		valid_until,
-		first_seen,
-		website_id
-	) VALUES (?,?,?,?,?)`,
+	INSERT INTO
+		coupon_codes(
+			code,
+			description,
+			valid_until,
+			first_seen,
+			website_id
+		)
+	VALUES
+		(?, ?, ?, ?, ?)`,
 		coupon.Code,
 		coupon.Description,
 		coupon.ValidUntil,
@@ -49,13 +52,18 @@ func (s *Service) CreateCouponCode(coupon CouponCode) error {
 }
 
 func (s *Service) GetCoupons() ([]CouponCode, error) {
-	rows, err := s.db.Query(`SELECT
+	rows, err := s.db.Query(`
+	SELECT
 		code,
 		description,
 		valid_until,
 		first_seen,
 		website_id
-	FROM coupon_codes ORDER BY id DESC`)
+	FROM
+		coupon_codes
+	ORDER BY
+		id DESC`,
+	)
 	if err != nil {
 		return nil, err
 	}

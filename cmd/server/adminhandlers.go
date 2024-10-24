@@ -61,7 +61,8 @@ func (h *Handler) adminhandleGetSubscribers(w http.ResponseWriter, r *http.Reque
 
 	var subscribers []Subscriber
 
-	rows, err := h.service.db.Query(`SELECT
+	rows, err := h.service.db.Query(`
+	SELECT
 		id,
 		email,
 		full_name,
@@ -109,7 +110,8 @@ func (h *Handler) adminHandleEditPost(w http.ResponseWriter, r *http.Request) er
 
 	// Fetch post from the database
 	var post Post
-	err = h.service.db.QueryRow(`SELECT
+	err = h.service.db.QueryRow(`
+	SELECT
 		website_id,
 		id,
 		description,
@@ -180,7 +182,9 @@ func (h *Handler) adminHandleUpdatePost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Update post in the database
-	_, err = h.service.db.Exec(`UPDATE posts
+	_, err = h.service.db.Exec(`
+	UPDATE
+		posts
 	SET
 		website_id = ?,
 		description = ?,
