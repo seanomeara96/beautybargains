@@ -2,9 +2,14 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
+	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gorilla/sessions"
@@ -65,60 +70,115 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) handleStoreSubscription(w http.ResponseWriter, r *http.Request) error {
+
+	// Set a reasonable maximum size for the form data to prevent memory exhaustion
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 	if err := r.ParseForm(); err != nil {
 		return fmt.Errorf("could not parse form: %w", err)
 	}
 
-	email := r.FormValue("email")
+	// Validate and sanitize email input
+	email := strings.TrimSpace(r.FormValue("email"))
+	if !isValidEmail(email) {
+		return h.render.Template(w, "subscriptionform", map[string]any{
+			"EmailErr": "Please provide a valid email address",
+		})
+	}
+
+	// Use constant-time comparison for consent check to prevent timing attacks
 	consent := r.FormValue("consent")
-
-	if consent != "on" {
-		// TODO maybe create an error state
-		return h.render.Template(w, "subscriptionform", map[string]any{"ConsentErr": "Please consent so we can add you to our mailing list. Thanks!"})
+	if !(subtle.ConstantTimeCompare([]byte(consent), []byte("on")) == 1) {
+		return h.render.Template(w, "subscriptionform", map[string]any{
+			"ConsentErr": "Please consent so we can add you to our mailing list. Thanks!",
+		})
 	}
 
-	q := `INSERT INTO subscribers(email, consent) VALUES (?, 1)`
-	if _, err := h.service.db.Exec(q, email); err != nil {
-		return fmt.Errorf("could not insert email into subscibers table => %w", err)
+	// Use a transaction to ensure data consistency
+	tx, err := h.service.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-
-	// Calculate the required byte size based on the length of the token
-	byteSize := 20 / 2 // Each byte is represented by 2 characters in hexadecimal encoding
-
-	// Create a byte slice to store the random bytes
-	randomBytes := make([]byte, byteSize)
-
-	// Read random bytes from the crypto/rand package
-	if _, err := rand.Read(randomBytes); err != nil {
-		return err
-	}
-
-	// Encode the random bytes into a hexadecimal string
-	token := fmt.Sprintf("%x", randomBytes)
-
-	// TODO move gernate token to service level
-	// TODO do one insert with both email and verification token
-
-	setVerificationTokenQuery := `UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`
-	if _, err := h.service.db.Exec(setVerificationTokenQuery, token, email); err != nil {
-		return fmt.Errorf("could not add verification token to user by email => %w", err)
-	}
-
-	log.Printf("Verify subscription at %s/subscribe/verify?token=%s", h.domain, token)
-	/* TODO implement this in production. For now log to console
-	err = s.SendVerificationToken(email, token)
+	defer func() {
 		if err != nil {
-			return fmt.Errorf("failed to send verification token => %w", err)
-		}*/
+			tx.Rollback()
+		}
+	}()
 
+	// Check for existing email first
+	var existingEmail string
+	err = tx.QueryRow("SELECT email FROM subscribers WHERE email = ?", email).Scan(&existingEmail)
+	if err != sql.ErrNoRows {
+		if err == nil {
+			return h.render.Template(w, "subscriptionform", map[string]any{
+				"EmailErr": "This email is already subscribed",
+			})
+		}
+		return fmt.Errorf("error checking for existing email: %w", err)
+	}
+
+	// Insert new subscriber
+	if _, err = tx.Exec(`INSERT INTO subscribers(email, consent) VALUES (?, 1)`, email); err != nil {
+		if isSQLiteConstraintError(err) {
+			return h.render.Template(w, "subscriptionform", map[string]any{
+				"EmailErr": "This email is already subscribed",
+			})
+		}
+		return fmt.Errorf("could not insert email into subscribers table: %w", err)
+	}
+
+	// Generate a cryptographically secure token with sufficient entropy
+	token := make([]byte, 32)
+	if _, err = rand.Read(token); err != nil {
+		return fmt.Errorf("failed to generate secure token: %w", err)
+	}
+	tokenStr := hex.EncodeToString(token)
+
+	// Update the verification token
+	if _, err = tx.Exec(
+		`UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`,
+		tokenStr, email,
+	); err != nil {
+		return fmt.Errorf("could not add verification token to user by email: %w", err)
+	}
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Set secure cookie with appropriate flags
 	http.SetCookie(w, &http.Cookie{
-		Name:    "subscription_status",
-		Value:   "subscribed",
-		Expires: time.Now().Add(30 * 24 * time.Hour),
+		Name:     "subscription_status",
+		Value:    "subscribed",
+		Expires:  time.Now().Add(30 * 24 * time.Hour),
+		HttpOnly: true,                    // Prevent XSS attacks
+		Secure:   true,                    // Only send over HTTPS
+		SameSite: http.SameSiteStrictMode, // Prevent CSRF attacks
+		Path:     "/",                     // Restrict cookie scope
 	})
 
-	return h.render.Template(w, "subscriptionsuccess", nil)
+	// Log verification URL (for development only)
+	if h.mode == Dev {
+		log.Printf("Verify subscription at %s/subscribe/verify?token=%s", h.domain, tokenStr)
+	}
 
+	return h.render.Template(w, "subscriptionsuccess", nil)
+}
+
+// Helper function to validate email format
+func isValidEmail(email string) bool {
+	if len(email) > 254 || len(email) < 3 {
+		return false
+	}
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+	return emailRegex.MatchString(email)
+}
+
+// Helper function to check for SQLite constraint errors
+func isSQLiteConstraintError(err error) bool {
+	// SQLite error code 19 is SQLITE_CONSTRAINT
+	return strings.Contains(err.Error(), "UNIQUE constraint failed") ||
+		strings.Contains(err.Error(), "constraint failed")
 }
 
 func (h *Handler) handleSubscribe(w http.ResponseWriter, r *http.Request) error {
