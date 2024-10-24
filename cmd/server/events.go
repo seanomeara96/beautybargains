@@ -8,6 +8,38 @@ import (
 	"time"
 )
 
+/* Event structure is inspred by the event html element in the semantic ui library */
+
+type Event struct {
+	ID      int
+	Profile Profile
+	Content Content
+	Meta    EventMeta
+}
+
+type Profile struct {
+	Photo    string
+	Username string
+}
+
+type Content struct {
+	Summary     string
+	TimeElapsed string
+	ExtraImages *[]ExtraImage  // optional
+	ExtraText   *template.HTML // optional
+}
+
+type ExtraImage struct {
+	Src string
+	Alt string
+}
+
+type EventMeta struct {
+	CTALink *string
+	Src     *string
+	Likes   int
+}
+
 func (s *Service) ConvertPostsToEvents(posts []Post) ([]Event, error) {
 	events := make([]Event, 0, len(posts))
 	for _, post := range posts {

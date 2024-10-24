@@ -2,6 +2,13 @@ package main
 
 import "math/rand"
 
+type Persona struct {
+	ID           int
+	Name         string
+	Description  string
+	ProfilePhoto string
+}
+
 // get all
 func getPersonas(limit, offset int) []Persona {
 	personas := []Persona{

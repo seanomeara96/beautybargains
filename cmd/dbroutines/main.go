@@ -103,13 +103,17 @@ func updateBrandPaths(db *sql.DB) {
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.Query("SELECT id, name FROM brands WHERE path IS NULL")
+	rows, err := tx.Query(
+		"SELECT id, name FROM brands WHERE path IS NULL",
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer rows.Close()
 
-	stmt, err := tx.Prepare("UPDATE brands SET path = ? WHERE id = ?")
+	stmt, err := tx.Prepare(
+		"UPDATE brands SET path = ? WHERE id = ?",
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -118,11 +122,14 @@ func updateBrandPaths(db *sql.DB) {
 	for rows.Next() {
 		var id int
 		var name string
-		if err := rows.Scan(&id, &name); err != nil {
+		if err := rows.Scan(
+			&id, &name,
+		); err != nil {
 			log.Fatal(err)
 		}
-		_, err := stmt.Exec(slug.Make(name), id)
-		if err != nil {
+		if _, err := stmt.Exec(
+			slug.Make(name), id,
+		); err != nil {
 			log.Fatal(err)
 		}
 	}

@@ -5,6 +5,11 @@ import (
 	"fmt"
 )
 
+type Hashtag struct {
+	ID     int
+	Phrase string
+}
+
 func (s *Service) insertHashtag(h *Hashtag) (lastInsertID int, err error) {
 	if h == nil {
 		return -1, errors.New("hashtag passed to insert hashtag is nil")

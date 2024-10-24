@@ -2,21 +2,9 @@ package main
 
 import (
 	"database/sql"
-	"html/template"
 	"net/http"
 	"time"
 )
-
-type Hashtag struct {
-	ID     int
-	Phrase string
-}
-
-type PostHashtag struct {
-	ID        int
-	PostID    int
-	HashtagID int
-}
 
 type Trending struct {
 	Category  string
@@ -27,65 +15,6 @@ type Trending struct {
 type handleFunc func(w http.ResponseWriter, r *http.Request) error
 type middleware func(next handleFunc) handleFunc
 
-type MenuItem struct {
-	Path string
-	Name string
-}
-
-type BasePageData struct {
-	Request   *http.Request
-	MenuItems []MenuItem
-}
-
-type Pagination struct {
-	PageNumber int
-	MaxPages   int
-}
-
-type Persona struct {
-	ID           int
-	Name         string
-	Description  string
-	ProfilePhoto string
-}
-
-type ProfilePhoto struct {
-	ID      int
-	URL     string
-	Name    string
-	ModelID int
-}
-
-type Profile struct {
-	Photo    string
-	Username string
-}
-
-type ExtraImage struct {
-	Src string
-	Alt string
-}
-
-type Content struct {
-	Summary     string
-	TimeElapsed string
-	ExtraImages *[]ExtraImage  // optional
-	ExtraText   *template.HTML // optional
-}
-
-type EventMeta struct {
-	CTALink *string
-	Src     *string
-	Likes   int
-}
-
-type Event struct {
-	ID      int
-	Profile Profile
-	Content Content
-	Meta    EventMeta
-}
-
 type Subscriber struct {
 	ID                int            `json:"id"`                              // Primary key, auto-increment
 	Email             string         `json:"email" validate:"required,email"` // Email, unique, not null
@@ -95,12 +24,6 @@ type Subscriber struct {
 	VerificationToken sql.NullString `json:"verification_token"`              // Unique verification token
 	IsVerified        bool           `json:"is_verified" default:"false"`     // Verification status, defaults to false (0)
 	Preferences       sql.NullString `json:"preferences"`                     // User preferences, can be null
-}
-
-type BannerData struct {
-	Src            string
-	SupportingText string
-	Href           string
 }
 
 /* models begin */

@@ -99,6 +99,12 @@ func getGoQueryPageDocument(url string) (*goquery.Document, error) {
 	return doc, nil
 }
 
+type BannerData struct {
+	Src            string
+	SupportingText string
+	Href           string
+}
+
 func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 	doc, err := getGoQueryPageDocument(website.URL)
 	if err != nil {

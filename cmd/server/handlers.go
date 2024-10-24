@@ -186,29 +186,72 @@ func (h *Handler) handleSubscribe(w http.ResponseWriter, r *http.Request) error 
 }
 
 func (h *Handler) handleGetVerifySubscription(w http.ResponseWriter, r *http.Request) error {
-	vars := r.URL.Query()
-	token := vars.Get("token")
+	token := r.URL.Query().Get("token")
 
-	if token == "" {
+	if subtle.ConstantTimeCompare([]byte(token), []byte("")) == 1 {
 		// ("Warning: subscription verification attempted with no token")
 		return h.handleGetFeed(w, r)
 	}
 
-	q := `UPDATE subscribers SET is_verified = 1 WHERE verification_token = ?`
-	_, err := h.service.db.Exec(q, token)
+	// Validate token format (should be 64 characters hex string since we generate 32 bytes)
+	if !isValidVerificationToken(token) {
+		if h.mode == Dev {
+			log.Printf("Warning: invalid verification token format attempted: %s", token)
+		}
+		return h.handleGetFeed(w, r)
+	}
+
+	result, err := h.service.db.Exec(`
+	UPDATE
+		subscribers
+	SET
+		is_verified = 1
+	WHERE
+		verification_token = ? 
+	AND 
+		is_verified = 0`, token)
 	if err != nil {
-		return fmt.Errorf("could not verify subscription via verification token => %w", err)
+		return fmt.Errorf(
+			"could not verify subscription via verification token => %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error checking rows affected %w", err)
+	}
+
+	if rowsAffected == 0 {
+
+		if h.mode == Dev {
+			log.Printf("warning: verification token was valid but no rows were affected")
+		}
+
+		return h.handleGetFeed(w, r)
 	}
 
 	// subscription confirmed
-
 	return h.render.Page(w, "subscriptionverification", map[string]any{})
 }
+
+// Helper function to validate token format
+func isValidVerificationToken(token string) bool {
+	// Token should be exactly 64 characters (32 bytes in hex)
+	if len(token) != 64 {
+		return false
+	}
+	// Check if it's a valid hex string
+	_, err := hex.DecodeString(token)
+	return err == nil
+}
+
 func (h *Handler) Unauthorized(w http.ResponseWriter, r *http.Request) error {
 
 	w.WriteHeader(http.StatusUnauthorized)
 
-	return h.render.Page(w, "unauthorizedpage", map[string]any{})
+	return h.render.Page(
+		w, "unauthorizedpage",
+		map[string]any{},
+	)
 }
 
 func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) error {
@@ -231,5 +274,8 @@ func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) erro
 		data[i].Website = site
 	}
 
-	return h.render.Page(w, "couponcodes", map[string]any{"WebsiteCoupons": data})
+	return h.render.Page(w,
+		"couponcodes",
+		map[string]any{"WebsiteCoupons": data},
+	)
 }

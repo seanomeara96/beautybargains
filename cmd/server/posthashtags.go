@@ -1,5 +1,11 @@
 package main
 
+type PostHashtag struct {
+	ID        int
+	PostID    int
+	HashtagID int
+}
+
 /* posthashtag db funcs*/
 func (s *Service) insertPostHashtagRelationship(postID, hashtagID int) error {
 
