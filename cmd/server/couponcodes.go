@@ -55,7 +55,7 @@ func (s *Service) GetCoupons() ([]CouponCode, error) {
 		valid_until,
 		first_seen,
 		website_id
-	FROM coupon_codes`)
+	FROM coupon_codes ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
