@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 )
 
 type Category struct {
@@ -13,6 +15,11 @@ type Category struct {
 
 // CreateCategory inserts a new category into the database
 func (s *Service) CreateCategory(c *Category) error {
+
+	if c.URL == "" {
+		return errors.New("URL needs to be supplied with category")
+	}
+
 	// Use the prepared statement to improve performance
 	result, err := s.createCategoryStmt.Exec(c.ParentID, c.Name, c.URL)
 	if err != nil {
@@ -27,6 +34,9 @@ func (s *Service) CreateCategory(c *Category) error {
 }
 
 func (s *Service) CategoryExists(name string) (bool, error) {
+
+	name = strings.TrimSpace(name)
+
 	var count int
 	if err := s.db.QueryRow(`SELECT COUNT(id) FROM categories WHERE name = ?`, name).Scan(&count); err != nil {
 		return false, fmt.Errorf("error checking if category exists (Name: %s): %v", name, err)

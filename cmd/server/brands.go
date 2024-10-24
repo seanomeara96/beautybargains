@@ -60,6 +60,11 @@ func (s *Service) GetBrands(params getAllBrandsParams) ([]Brand, error) {
 	return brands, nil
 }
 func (s *Service) CreateBrand(brand Brand) error {
+
+	if brand.Path == "" {
+		return fmt.Errorf("expected a path to be supplied on brand got '%s' instead", brand.Path)
+	}
+
 	_, err := s.db.Exec(`
 	INSERT INTO
 		brands (
@@ -80,6 +85,9 @@ func (s *Service) CreateBrand(brand Brand) error {
 }
 
 func (s *Service) BrandExists(brandName string) (bool, error) {
+
+	brandName = strings.TrimSpace(brandName)
+
 	var count int
 	err := s.db.QueryRow(`
 	SELECT
@@ -122,8 +130,11 @@ func (s *Service) GetBrandByID(id int) (Brand, error) {
 }
 
 func (s *Service) GetBrandByName(name string) (Brand, error) {
+
+	name = strings.TrimSpace(name)
+
 	var brand Brand
-	err := s.db.QueryRow(`
+	if err := s.db.QueryRow(`
 	SELECT
 		id,
 		name,
@@ -137,8 +148,7 @@ func (s *Service) GetBrandByName(name string) (Brand, error) {
 		&brand.Name,
 		&brand.Path,
 		&brand.Score,
-	)
-	if err != nil {
+	); err != nil {
 		return brand, fmt.Errorf("could not get brand: %w", err)
 	}
 	return brand, nil
