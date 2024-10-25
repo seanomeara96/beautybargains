@@ -14,4 +14,10 @@ func TestUnmarshalCouponCode(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	data = `{ "code":"SAVE10", "description":"save €10" }`
+
+	if err := json.Unmarshal([]byte(data), &c); err != nil {
+		t.Fatal(err)
+	}
+
 }

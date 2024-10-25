@@ -43,7 +43,7 @@ const responseSchema = `{
           "valid_until": {
             "type": ["string", "null"],
             "format": "date-time",
-            "description": "Expiration date of the coupon, if any"
+            "description": "Expiration date of the coupon, if any, in rfc3339 time format"
           }
         },
         "required": ["code", "description"]
