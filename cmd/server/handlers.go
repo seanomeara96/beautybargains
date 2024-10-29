@@ -50,7 +50,7 @@ func (h *Handler) handleGetHomePage(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	posts, err := scanPosts(rows, []Post{})
+	posts, err := scanPosts(rows, make([]Post, 0, 6))
 	if err != nil {
 		return err
 	}
