@@ -23,6 +23,64 @@ type Handler struct {
 	render  *Renderer
 }
 
+func (h *Handler) handleGetHomePage(w http.ResponseWriter, r *http.Request) error {
+
+	rows, err := h.service.db.Query(`
+	SELECT
+		*
+	FROM
+		(
+			SELECT
+				id,
+				website_id,
+				src_url,
+				author_id,
+				description,
+				timestamp
+			FROM
+				posts
+			ORDER BY
+				timestamp DESC
+		)
+	GROUP BY
+		website_id
+	LIMIT
+		6`)
+	if err != nil {
+		return err
+	}
+
+	posts, err := scanPosts(rows, []Post{})
+	if err != nil {
+		return err
+	}
+
+	events, err := h.service.ConvertPostsToEvents(posts)
+	if err != nil {
+		return err
+	}
+
+	trendingHashtags, err := h.service.GetTrendingHashtags()
+	if err != nil {
+		return err
+	}
+
+	c, err := r.Cookie("subscription_status")
+	subscribed := err == nil && c.Value == "subscribed"
+	if err != nil && err != http.ErrNoCookie {
+		log.Printf("Warning: Error getting subscription_status cookie: %v", err)
+	}
+
+	data := map[string]any{
+		"AlreadySubscribed": subscribed,
+		"Events":            events,
+		"Websites":          getWebsites(0, 0),
+		"Trending":          trendingHashtags,
+	}
+
+	return h.render.Page(w, "feedpage", data)
+}
+
 func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 
 	hashtagQuery := r.URL.Query().Get("hashtag")

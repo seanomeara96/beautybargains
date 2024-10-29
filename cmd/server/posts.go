@@ -18,6 +18,37 @@ type Post struct {
 	Score       float64
 }
 
+type scannable interface {
+	Scan(dest ...any) error
+}
+
+func scanPost(row scannable) (Post, error) {
+	var post Post
+	if err := row.Scan(
+		&post.ID,
+		&post.WebsiteID,
+		&post.SrcURL,
+		&post.AuthorID,
+		&post.Description,
+		&post.Timestamp,
+	); err != nil {
+		return Post{}, err
+	}
+	return post, nil
+}
+
+func scanPosts(rows *sql.Rows, arr []Post) ([]Post, error) {
+	for rows.Next() {
+		post, err := scanPost(rows)
+		if err != nil {
+			return nil, err
+		}
+		arr = append(arr, post)
+	}
+	_ = rows.Close()
+	return arr, nil
+}
+
 type getPostParams struct {
 	WebsiteID     int
 	IDs           []int
@@ -90,15 +121,8 @@ func (s *Service) getPosts(params getPostParams) ([]Post, error) {
 
 	posts := make([]Post, 0, params.Limit)
 	for rows.Next() {
-		var post Post
-		if err := rows.Scan(
-			&post.ID,
-			&post.WebsiteID,
-			&post.SrcURL,
-			&post.AuthorID,
-			&post.Description,
-			&post.Timestamp,
-		); err != nil {
+		post, err := scanPost(rows)
+		if err != nil {
 			return nil, err
 		}
 		posts = append(posts, post)
@@ -140,16 +164,8 @@ func (s *Service) GetPreviewPosts(website Website, postIDs []int) ([]Post, error
 
 	var posts []Post
 	for rows.Next() {
-		var post Post
-		if err := rows.Scan(
-			&post.ID,
-			&post.Description,
-			&post.AuthorID,
-			&post.Score,
-			&post.SrcURL,
-			&post.Timestamp,
-			&post.WebsiteID,
-		); err != nil {
+		post, err := scanPost(rows)
+		if err != nil {
 			return nil, err
 		}
 		posts = append(posts, post)

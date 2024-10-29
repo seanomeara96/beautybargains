@@ -68,8 +68,8 @@ func server(port string, mode Mode, service *Service) error {
 
 	handle := newHandleFunc(r, globalMiddleware)
 
-	handle("/", handler.handleGetFeed)
-	handle("/coupons", handler.handleListCoupons)
+	handle("/", handler.handleGetHomePage)
+	handle("GET /coupons", handler.handleListCoupons)
 	handle("GET /website/{websitePath}", handler.handleGetFeed)
 	handle("GET /subscribe", handler.handleSubscribe)
 	handle("POST /subscribe", handler.handleStoreSubscription)
