@@ -29,6 +29,7 @@ func scanPost(row scannable) (Post, error) {
 		&post.WebsiteID,
 		&post.SrcURL,
 		&post.AuthorID,
+		&post.Score,
 		&post.Description,
 		&post.Timestamp,
 	); err != nil {
@@ -138,9 +139,17 @@ func (s *Service) getPosts(params getPostParams) ([]Post, error) {
 func (s *Service) GetPreviewPosts(website Website, postIDs []int) ([]Post, error) {
 	args := []any{}
 	var q strings.Builder
-	q.WriteString(`WITH orderedPosts AS (
-	SELECT id, description, author_id, Score, src_url, timestamp, website_id
-	FROM posts p `)
+	q.WriteString(`
+	WITH orderedPosts AS (
+		SELECT 
+			id, 
+			website_id, 
+			src_url, 
+			author_id, 
+			Score, 
+			description, 
+			timestamp
+		FROM posts p `)
 
 	if len(postIDs) > 0 {
 		q.WriteString(`WHERE p.id IN (`)

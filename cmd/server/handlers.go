@@ -35,6 +35,7 @@ func (h *Handler) handleGetHomePage(w http.ResponseWriter, r *http.Request) erro
 				website_id,
 				src_url,
 				author_id,
+				score,
 				description,
 				timestamp
 			FROM
