@@ -8,9 +8,9 @@ import (
 
 type CouponCode struct {
 	ID          int
-	Code        string  `json:"code"`
-	Description string  `json:"description"`
-	ValidUntil  *string `json:"valid_until"`
+	Code        string     `json:"code"`
+	Description string     `json:"description"`
+	ValidUntil  *time.Time `json:"valid_until"`
 	FirstSeen   time.Time
 	WebsiteID   int
 }
