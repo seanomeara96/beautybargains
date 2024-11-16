@@ -23,7 +23,7 @@ type Profile struct {
 }
 
 type Content struct {
-	Summary     string
+	Summary     template.HTML
 	TimeElapsed string
 	ExtraImages *[]ExtraImage  // optional
 	ExtraText   *template.HTML // optional
@@ -98,7 +98,7 @@ func (s *Service) ConvertPostToEvent(post Post) (Event, error) {
 	if err != nil {
 		return Event{}, fmt.Errorf("could not get website by id %d: %v", post.WebsiteID, err)
 	}
-	e.Content.Summary = fmt.Sprintf("posted an update about %s", website.WebsiteName)
+	e.Content.Summary = template.HTML(fmt.Sprintf("posted an update about <a href='%s'>%s</a>", website.URL, website.WebsiteName))
 	e.Content.ExtraImages = &[]ExtraImage{{post.SrcURL, ""}}
 	return e, nil
 }

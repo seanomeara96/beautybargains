@@ -152,10 +152,10 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 		})
 	case 2:
 		// lookfantastic
-		doc.Find(".responsiveSlider_slideContainer").Each(func(i int, s *goquery.Selection) {
+		doc.Find(".carousel-item").Each(func(i int, selection *goquery.Selection) {
 			lf := BannerData{}
 			// logic goes here
-			if imgSrc, found := s.Find("img").Attr("src"); found {
+			if imgSrc, found := selection.Find("[media='(max-width: 430px)']").Attr("srcset"); found {
 				if strings.HasPrefix(imgSrc, "/") {
 					imgSrc = website.URL + imgSrc
 				}
@@ -168,13 +168,13 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 				return
 			}
 
-			if text := strings.TrimSpace(s.Text()); text != "" {
+			if text := strings.TrimSpace(selection.Text()); text != "" {
 				text := regex.ReplaceAllString(text, " ")
 
 				lf.SupportingText = text
 			}
 
-			if href, found := s.Find("a").Attr("href"); found {
+			if href, found := selection.Find("a").Attr("href"); found {
 				if strings.HasPrefix(href, "/") {
 					href = website.URL + href
 				}

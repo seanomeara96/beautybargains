@@ -62,7 +62,7 @@ type getPostParams struct {
 func (s *Service) getPosts(params getPostParams) ([]Post, error) {
 
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT id, website_id, src_url, author_id, description, timestamp FROM posts")
+	queryBuilder.WriteString("SELECT id, website_id, src_url, author_id, score, description, timestamp FROM posts")
 
 	args := make([]any, 0)
 	if params.WebsiteID != 0 || len(params.IDs) > 0 {
@@ -116,7 +116,7 @@ func (s *Service) getPosts(params getPostParams) ([]Post, error) {
 
 	rows, err := s.db.Query(queryBuilder.String(), args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed db query '%s' with err: %v", queryBuilder.String(), err)
 	}
 	defer rows.Close()
 
