@@ -82,8 +82,6 @@ func (s *Service) GetCoupons(params getCouponParams) ([]CouponCode, error) {
 		args = append(args, params.Offset)
 	}
 
-	fmt.Println(query.String())
-
 	rows, err := s.db.Query(query.String(), args...)
 	if err != nil {
 		return nil, err
