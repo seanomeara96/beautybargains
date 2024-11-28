@@ -9,7 +9,7 @@
         {{ range .WebsiteCoupons }}
             <div class="coupon bg-white shadow-lg rounded-lg p-6 mb-6">
                 <p class="text-sm text-gray-600 mt-1 flex items-center gap-2 border-b-2 pb-1 mb-4">
-                    <img height="16" width="16" class="w-4 h-4 aspect-square object-center object-cover" src="{{ .Website.Icon }}" alt="{{ .Website.WebsiteName }} Icon">
+                    <img height="16" width="16" class="w-4 h-4 aspect-square object-center object-cover rounded-full" src="{{ .Website.Icon }}" alt="{{ .Website.WebsiteName }} Icon">
                     <a href="{{ .Website.URL }}" class="text-blue-600 hover:underline">{{ .Website.WebsiteName }}</a>
                 </p>
                 <h3 class="text-2xl font-bold text-blue-600 mb-2">{{ .Coupon.Code }}</h3>
