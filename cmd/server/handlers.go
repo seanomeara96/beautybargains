@@ -73,6 +73,7 @@ func (h *Handler) handleGetHomePage(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	data := map[string]any{
+		"Canonical":         r.URL.Path,
 		"AlreadySubscribed": subscribed,
 		"Events":            events,
 		"Websites":          getWebsites(0, 0),
@@ -119,6 +120,7 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	data := map[string]any{
+		"Canonical":         r.URL.Path,
 		"AlreadySubscribed": subscribed,
 		"Events":            events,
 		"Websites":          getWebsites(0, 0),
@@ -241,7 +243,9 @@ func isSQLiteConstraintError(err error) bool {
 }
 
 func (h *Handler) handleSubscribe(w http.ResponseWriter, r *http.Request) error {
-	return h.render.Page(w, "subscribepage", map[string]any{})
+	return h.render.Page(w, "subscribepage", map[string]any{
+		"Canonical": r.URL.Path,
+	})
 }
 
 func (h *Handler) handleGetVerifySubscription(w http.ResponseWriter, r *http.Request) error {
@@ -289,7 +293,9 @@ func (h *Handler) handleGetVerifySubscription(w http.ResponseWriter, r *http.Req
 	}
 
 	// subscription confirmed
-	return h.render.Page(w, "subscriptionverification", map[string]any{})
+	return h.render.Page(w, "subscriptionverification", map[string]any{
+		"Canonical": r.URL.Path,
+	})
 }
 
 // Helper function to validate token format
@@ -309,7 +315,9 @@ func (h *Handler) Unauthorized(w http.ResponseWriter, r *http.Request) error {
 
 	return h.render.Page(
 		w, "unauthorizedpage",
-		map[string]any{},
+		map[string]any{
+			"Canonical": r.URL.Path,
+		},
 	)
 }
 
@@ -336,6 +344,9 @@ func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) erro
 
 	return h.render.Page(w,
 		"couponcodes",
-		map[string]any{"WebsiteCoupons": data},
+		map[string]any{
+			"WebsiteCoupons": data,
+			"Canonical":      r.URL.Path,
+		},
 	)
 }
