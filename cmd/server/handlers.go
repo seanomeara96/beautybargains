@@ -73,6 +73,8 @@ func (h *Handler) handleGetHomePage(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	data := map[string]any{
+		"PageTitle":         "All of Ireland's Top Beauty Deals and Discount Codes in One Place!",
+		"MetaDescription":   "We keep an eye on all your favourite beauty retailers' top offers and discount codes so you dont have to.",
 		"Canonical":         r.URL.Path,
 		"AlreadySubscribed": subscribed,
 		"Events":            events,
@@ -120,6 +122,8 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	data := map[string]any{
+		"PageTitle":         fmt.Sprintf("Latest offers and Discount Codes for %s", website.WebsiteName),
+		"MetaDescription":   fmt.Sprintf("we track the offers and discounts on %s so you dont have to. Signup to the newsletter to have all the latest and greatest deals delivered staight to your inbox.", website.WebsiteName),
 		"Canonical":         r.URL.Path,
 		"AlreadySubscribed": subscribed,
 		"Events":            events,
@@ -244,7 +248,9 @@ func isSQLiteConstraintError(err error) bool {
 
 func (h *Handler) handleSubscribe(w http.ResponseWriter, r *http.Request) error {
 	return h.render.Page(w, "subscribepage", map[string]any{
-		"Canonical": r.URL.Path,
+		"PageTitle":       "Subscribe to the BeautyBargains Newsletter to never miss a Deal",
+		"MetaDescription": "We drop all the latest offers from Top Beauty Retailers in Ireland into one email to save you from getting thousands of emails in your inbox every day.",
+		"Canonical":       r.URL.Path,
 	})
 }
 
@@ -294,7 +300,9 @@ func (h *Handler) handleGetVerifySubscription(w http.ResponseWriter, r *http.Req
 
 	// subscription confirmed
 	return h.render.Page(w, "subscriptionverification", map[string]any{
-		"Canonical": r.URL.Path,
+		"PageTitle":       "Thanks for Signing Up!",
+		"MetaDescription": "Keep an eye out for our newsletter!",
+		"Canonical":       r.URL.Path,
 	})
 }
 
@@ -316,7 +324,9 @@ func (h *Handler) Unauthorized(w http.ResponseWriter, r *http.Request) error {
 	return h.render.Page(
 		w, "unauthorizedpage",
 		map[string]any{
-			"Canonical": r.URL.Path,
+			"PageTitle":       "BeautyBargains.ie | Unauthorized",
+			"MetaDescription": "You are attemptig to access without authorization",
+			"Canonical":       r.URL.Path,
 		},
 	)
 }
@@ -345,8 +355,10 @@ func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) erro
 	return h.render.Page(w,
 		"couponcodes",
 		map[string]any{
-			"WebsiteCoupons": data,
-			"Canonical":      r.URL.Path,
+			"PageTitle":       "Find Coupons/Discount Codes for top Beauty Retailers in Ireland!",
+			"MetaDescription": "We monitor for new discount codes daily and put them all here in the one place to save you hours of searching",
+			"WebsiteCoupons":  data,
+			"Canonical":       r.URL.Path,
 		},
 	)
 }
