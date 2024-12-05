@@ -123,7 +123,7 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 
 	data := map[string]any{
 		"PageTitle":         fmt.Sprintf("Latest offers and Discount Codes for %s", website.WebsiteName),
-		"MetaDescription":   fmt.Sprintf("we track the offers and discounts on %s so you dont have to. Signup to the newsletter to have all the latest and greatest deals delivered staight to your inbox.", website.WebsiteName),
+		"MetaDescription":   fmt.Sprintf("we track the offers and discounts on %s so you dont have to. Signup to have them delivered staight to your inbox.", website.WebsiteName),
 		"Canonical":         r.URL.Path,
 		"AlreadySubscribed": subscribed,
 		"Events":            events,
@@ -250,7 +250,7 @@ func isSQLiteConstraintError(err error) bool {
 func (h *Handler) handleSubscribe(w http.ResponseWriter, r *http.Request) error {
 	return h.render.Page(w, "subscribepage", map[string]any{
 		"PageTitle":       "Subscribe to the BeautyBargains Newsletter to never miss a Deal",
-		"MetaDescription": "We drop all the latest offers from Top Beauty Retailers in Ireland into one email to save you from getting thousands of emails in your inbox every day.",
+		"MetaDescription": "We drop the latest offers from Top Beauty Sites into one email so you never miss out.",
 		"Canonical":       r.URL.Path,
 	})
 }
@@ -357,7 +357,7 @@ func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) erro
 		"couponcodes",
 		map[string]any{
 			"PageTitle":       "Find Coupons/Discount Codes for top Beauty Retailers in Ireland!",
-			"MetaDescription": "We monitor for new discount codes daily and put them all here in the one place to save you hours of searching",
+			"MetaDescription": "We collect new discount codes as fast as we can and leave all them here for you.",
 			"WebsiteCoupons":  data,
 			"Canonical":       r.URL.Path,
 		},
