@@ -123,7 +123,7 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 
 	data := map[string]any{
 		"PageTitle":         fmt.Sprintf("Latest offers and Discount Codes for %s", website.WebsiteName),
-		"MetaDescription":   fmt.Sprintf("we track the offers and discounts on %s so you dont have to. Signup to have them delivered staight to your inbox.", website.WebsiteName),
+		"MetaDescription":   fmt.Sprintf("We track the offers and discounts on %s deliver them staight to your inbox.", website.WebsiteName),
 		"Canonical":         r.URL.Path,
 		"AlreadySubscribed": subscribed,
 		"Events":            events,
