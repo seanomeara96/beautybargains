@@ -129,6 +129,7 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		"Events":            events,
 		"Websites":          getWebsites(0, 0),
 		"Trending":          trendingHashtags,
+		"SelectedStore":     website,
 	}
 
 	return h.render.Page(w, "feedpage", data)

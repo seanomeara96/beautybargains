@@ -23,6 +23,11 @@
 {{ end }}
 
 <section class="py-8 px-6 container mx-auto">
+  <h1 class="text-2xl my-4 font-bold text-gray-800">{{ if .SelectedStore }}
+    Beauty Offers for {{ .SelectedStore.WebsiteName }}
+  {{ else }}
+    Latest Beauty Offers
+  {{ end }}</h1>
   <!-- main feed area -->
   <main id="feed" class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
     {{ range.Events }}
@@ -36,7 +41,7 @@
 <!-- websites and hash tags -->
 <section class="py-8 px-6 container mx-auto">
 <div id="websites">
-  <h2 id="stores" class="text-lg font-semibold text-gray-800 mb-4">Stores</h2>
+  <h2 id="stores" class="text-lg font-semibold text-gray-800 mb-4">View Offers by Store</h2>
   <p class="mb-6">
     We are keeping our eyes on these stores and are adding more soon
   </p>
