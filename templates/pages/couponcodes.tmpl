@@ -1,11 +1,24 @@
 {{ define "couponcodes" }}
 {{ template  "header" . }}
-<h1 class="container mx-auto text-2xl px-4 my-8">Irish Beauty Coupon Codes</h1>
+<div class="container mx-auto px-4 my-8">
+  <h1 class="text-2xl my-4">
+    Irish Beauty Coupon Codes
+  </h1>
+  <p>Find the Best Beauty Coupons and Discount Codes in Ireland</p>
+  <p>
+    Welcome to BeautyBargains.ie, your ultimate destination for the latest
+    beauty deals and discounts from Ireland's favorite retailers. Whether you're
+    looking for skincare, makeup, or haircare products, we've got you covered
+    with exclusive offers. Check out the most recent beauty coupon codes below!
+  </p>
+</div>
 <div
   class="coupon-codes container mx-auto px-4 my-8 grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
 >
   {{ range.WebsiteCoupons }}
-  <div class="coupon bg-white shadow-lg rounded-lg p-6 mb-6 flex flex-col justify-between">
+  <div
+    class="coupon bg-white shadow-lg rounded-lg p-6 mb-6 flex flex-col justify-between"
+  >
     <div>
       <p
         class="text-sm text-gray-600 mt-1 flex items-center gap-2 border-b-2 pb-1 mb-4"
