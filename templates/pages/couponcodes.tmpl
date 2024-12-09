@@ -21,16 +21,16 @@
     class="coupon bg-white shadow-lg rounded-lg p-6 mb-6 flex flex-col justify-between"
   >
     <div>
-      <p
-        class="text-sm text-gray-600 mt-1 flex items-center gap-2 border-b-2 pb-1 mb-4"
+      <div
+        class="text-gray-600 mt-1 flex items-center flex-wrap gap-1 md:gap-2 border-b-2 pb-1 mb-4 text-xs md:text-sm"
       >
         {{ template "website-icon" .Website }}
-        <a href="{{ .Website.URL }}" class="text-blue-600 hover:underline"
+        <a href="{{ .Website.URL }}" class=" text-blue-600 hover:underline"
           >{{ .Website.WebsiteName }}
         </a>
         •
-        <span class="text-sm">{{ .Coupon.FirstSeen.Format "02/01/2006" }}</span>
-      </p>
+        <span class="">{{ .Coupon.FirstSeen.Format "02/01/2006" }}</span>
+      </div>
       <h3 class="lg:text-2xl font-bold text-blue-600 mb-2">
         {{ .Coupon.Code }}
       </h3>
@@ -47,7 +47,7 @@
 <img
   height="16"
   width="16"
-  class="w-4 h-4 aspect-square object-center object-cover rounded-full"
+  class="w-2 md:w-4 h-2 md:h-4 aspect-square object-center object-cover rounded-full"
   src="{{ .Icon }}"
   alt="{{ .WebsiteName }} Icon"
 />
