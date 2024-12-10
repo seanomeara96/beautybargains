@@ -43,9 +43,11 @@
       id="extra-images"
       class="mt-2 bg-transparent p-0 text-black flex gap-4"
     >
+      {{ $extraText := .Content.ExtraText }}
       {{ range.Content.ExtraImages }}
-        <img class="block w-auto max-h-96 mx-auto" src="{{ .Src }}" alt="{{ if .Content.ExtraText }}{{ .Content.ExtraText }}{{ else }}{{ .Alt }}{{ end }}" />
+        <img class="block w-auto max-h-96 mx-auto" src="{{ .Src }}" alt="{{ if $extraText }}{{ $extraText }}{{ else }}{{ .Alt }}{{ end }}" />
       {{ end }}
+      
     </div>
     {{ end }}
 
