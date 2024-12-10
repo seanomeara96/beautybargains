@@ -25,6 +25,12 @@ type Handler struct {
 
 func (h *Handler) handleGetHomePage(w http.ResponseWriter, r *http.Request) error {
 
+	hashtagQuery := r.URL.Query().Get("hashtag")
+
+	if hashtagQuery != "" {
+		return h.handleGetFeed(w, r)
+	}
+
 	rows, err := h.service.db.Query(`
 	SELECT
 		*
@@ -95,9 +101,11 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 
 	var postIDs []int
 	if hashtagQuery != "" {
-		if err := h.service.getPostIDsByHashtagQuery(hashtagQuery, postIDs); err != nil {
+		pIds, err := h.service.getPostIDsByHashtagQuery(hashtagQuery)
+		if err != nil {
 			return err
 		}
+		postIDs = pIds
 	}
 
 	posts, err := h.service.GetPreviewPosts(website, postIDs)
@@ -121,6 +129,14 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		log.Printf("Warning: Error getting subscription_status cookie: %v", err)
 	}
 
+	// on feed page the offers are either for the selected website or hashtag
+	var offersFor string = "You"
+	if website.WebsiteID != 0 {
+		offersFor = website.WebsiteName
+	} else if hashtagQuery != "" {
+		offersFor = `#` + hashtagQuery
+	}
+
 	data := map[string]any{
 		"PageTitle":         fmt.Sprintf("Latest offers and Discount Codes for %s", website.WebsiteName),
 		"MetaDescription":   fmt.Sprintf("We track the offers and discounts on %s deliver them staight to your inbox.", website.WebsiteName),
@@ -129,7 +145,7 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		"Events":            events,
 		"Websites":          getWebsites(0, 0),
 		"Trending":          trendingHashtags,
-		"SelectedStore":     website,
+		"OffersFor":         offersFor,
 	}
 
 	return h.render.Page(w, "feedpage", data)

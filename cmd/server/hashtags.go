@@ -62,27 +62,27 @@ func (s *Service) getHashtagByID(id int) (*Hashtag, error) {
 	return &h, nil
 }
 
-func (s *Service) getPostIDsByHashtagQuery(hashtagQuery string, postIDs []int) error {
+func (s *Service) getPostIDsByHashtagQuery(hashtagQuery string) (postIDs []int, err error) {
 	hashtagID, err := s.getHashtagIDByPhrase(hashtagQuery)
 	if err != nil {
-		return fmt.Errorf("could not get hashtag id: %w", err)
+		return nil, fmt.Errorf("could not get hashtag id: %w", err)
 	}
 
 	postIdRows, err := s.db.Query("SELECT post_id FROM post_hashtags WHERE hashtag_id = ?", hashtagID)
 	if err != nil {
-		return fmt.Errorf("error getting post_ids: %w", err)
+		return nil, fmt.Errorf("error getting post_ids: %w", err)
 	}
 	defer postIdRows.Close()
 
 	for postIdRows.Next() {
 		var id int
 		if err := postIdRows.Scan(&id); err != nil {
-			return fmt.Errorf("error scanning post_id: %w", err)
+			return nil, fmt.Errorf("error scanning post_id: %w", err)
 		}
 		postIDs = append(postIDs, id)
 	}
 
-	return nil
+	return postIDs, nil
 }
 func (s *Service) GetTrendingHashtags() ([]Hashtag, error) {
 	rows, err := s.db.Query(`SELECT hashtag_id, count(post_id) FROM post_hashtags GROUP BY hashtag_id ORDER BY count(post_id) DESC LIMIT 5`)

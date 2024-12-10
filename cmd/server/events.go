@@ -90,7 +90,7 @@ func (s *Service) ConvertPostToEvent(post Post) (Event, error) {
 
 	for _, match := range matches {
 		phrase := strings.ToLower(match[1])
-		extraText = strings.Replace(extraText, match[0], fmt.Sprintf("<a class='text-blue-500' href='?hashtag=%s'>%s</a>", phrase, match[0]), 1)
+		extraText = strings.Replace(extraText, match[0], fmt.Sprintf("<a class='text-blue-500' href='/?hashtag=%s'>%s</a>", phrase, match[0]), 1)
 	}
 
 	e.Content.ExtraText = (*template.HTML)(&extraText)

@@ -23,11 +23,13 @@
 {{ end }}
 
 <section class="py-8 px-6 container mx-auto">
-  <h1 class="text-2xl my-4 font-bold text-gray-800">{{ if .SelectedStore }}
-    Beauty Offers for {{ .SelectedStore.WebsiteName }}
-  {{ else }}
-    Latest Beauty Offers
-  {{ end }}</h1>
+  <h1 class="text-2xl my-4 font-bold text-gray-800">
+    {{ if .OffersFor }}
+        Beauty Offers for {{ .OffersFor }}
+    {{ else }}
+        Latest Beauty Offers
+    {{ end }}
+  </h1>
   <!-- main feed area -->
   <main id="feed" class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
     {{ range.Events }}
