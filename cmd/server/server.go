@@ -54,6 +54,10 @@ func server(port string, mode Mode, service *Service) error {
 	imagesFileServer := http.FileServer(imageDir)
 	r.Handle("/website_screenshots/", http.StripPrefix("/website_screenshots/", imagesFileServer))
 
+	faviconDir := http.Dir("favicon_io")
+	faviconFileServer := http.FileServer(faviconDir)
+	r.Handle("/favicon_io/", http.StripPrefix("/favicon_io/", faviconFileServer))
+
 	/*
 		Serve robots.txt & sitemap
 	*/
