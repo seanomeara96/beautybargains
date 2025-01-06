@@ -123,6 +123,27 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	coupons, err := h.service.GetCoupons(getCouponParams{
+		WebsiteID: website.WebsiteID,
+	})
+	if err != nil {
+		return err
+	}
+
+	type WebsiteCoupon struct {
+		Coupon  CouponCode
+		Website Website
+	}
+	websiteCoupons := make([]WebsiteCoupon, len(coupons))
+	for i, coupon := range coupons {
+		websiteCoupons[i].Coupon = coupon
+		site, err := getWebsiteByID(coupon.WebsiteID)
+		if err != nil {
+			return err
+		}
+		websiteCoupons[i].Website = site
+	}
+
 	c, err := r.Cookie("subscription_status")
 	subscribed := err == nil && c.Value == "subscribed"
 	if err != nil && err != http.ErrNoCookie {
@@ -146,6 +167,7 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 		"Websites":          getWebsites(0, 0),
 		"Trending":          trendingHashtags,
 		"OffersFor":         offersFor,
+		"WebsiteCoupons":    websiteCoupons,
 	}
 
 	return h.render.Page(w, "feedpage", data)

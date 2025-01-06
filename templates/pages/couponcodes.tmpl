@@ -11,34 +11,12 @@
   </p>
 </div>
 
-<hr class="container mx-auto">
+<hr class="container mx-auto" />
 
-<div
-  class="coupon-codes container mx-auto px-4 my-8 grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
->
-  {{ range.WebsiteCoupons }}
-  <div
-    class="coupon bg-white shadow-lg rounded-lg p-6 mb-6 flex flex-col justify-between"
-  >
-    <div>
-      <div
-        class="text-gray-600 mt-1 flex items-center flex-wrap gap-1 md:gap-2 border-b-2 pb-1 mb-4 text-xs md:text-sm"
-      >
-        {{ template "website-icon" .Website }}
-        <a href="{{ .Website.URL }}" class=" text-blue-600 hover:underline"
-          >{{ .Website.WebsiteName }}
-        </a>
-        •
-        <span class="">{{ .Coupon.FirstSeen.Format "02/01/2006" }}</span>
-      </div>
-      <h3 class="lg:text-2xl font-bold text-blue-600 mb-2">
-        {{ .Coupon.Code }}
-      </h3>
-      <p class="text-gray-700 mb-4">{{ .Coupon.Description }}</p>
-    </div>
-  </div>
-  {{ end }}
-</div>
+
+{{ template "coupons-container" .WebsiteCoupons}}
+
+
 {{ template "footer" . }}
 {{ end }}
 
@@ -52,4 +30,38 @@
   alt="{{ .WebsiteName }} Icon"
 />
 
+{{ end }}
+
+{{/*
+  
+  Needs Access to .WebsiteCoupons of type WebsiteCoupon
+
+  */}}
+{{ define "coupons-container" }}
+<div
+  class="coupon-codes container mx-auto px-4 my-8 grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+>
+  {{ range . }}
+  <div
+    class="coupon bg-white shadow-lg rounded-lg p-6 mb-6 flex flex-col justify-between"
+  >
+    <div>
+      <div
+        class="text-gray-600 mt-1 flex items-center flex-wrap gap-1 md:gap-2 border-b-2 pb-1 mb-4 text-xs md:text-sm"
+      >
+        {{ template "website-icon" .Website }}
+        <a href="{{ .Website.URL }}" class="text-blue-600 hover:underline"
+          >{{ .Website.WebsiteName }}
+        </a>
+        •
+        <span class="">{{ .Coupon.FirstSeen.Format "02/01/2006" }}</span>
+      </div>
+      <h3 class="lg:text-2xl font-bold text-blue-600 mb-2">
+        {{ .Coupon.Code }}
+      </h3>
+      <p class="text-gray-700 mb-4">{{ .Coupon.Description }}</p>
+    </div>
+  </div>
+  {{ end }}
+</div>
 {{ end }}

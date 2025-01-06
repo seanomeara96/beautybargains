@@ -30,6 +30,10 @@
         Latest Beauty Offers
     {{ end }}
   </h1>
+
+  {{ template "coupons-container" .WebsiteCoupons }}
+
+
   <!-- main feed area -->
   <main id="feed" class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
     {{ range.Events }}

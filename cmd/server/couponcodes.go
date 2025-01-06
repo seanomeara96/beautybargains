@@ -52,7 +52,7 @@ func (s *Service) CreateCouponCode(coupon CouponCode) error {
 }
 
 type getCouponParams struct {
-	Limit, Offset int
+	WebsiteID, Limit, Offset int
 }
 
 func (s *Service) GetCoupons(params getCouponParams) ([]CouponCode, error) {
@@ -67,11 +67,18 @@ func (s *Service) GetCoupons(params getCouponParams) ([]CouponCode, error) {
 		first_seen,
 		website_id
 	FROM
-		coupon_codes
-	ORDER BY
-		id DESC`)
+		coupon_codes`)
 
 	args := []any{}
+
+	if params.WebsiteID > 0 {
+		query.WriteString(` WHERE website_id = ?`)
+		args = append(args, params.WebsiteID)
+	}
+
+	query.WriteString(`	ORDER BY
+		id DESC`)
+
 	if params.Limit > 0 {
 		query.WriteString(` LIMIT ?`)
 		args = append(args, params.Limit)
