@@ -67,6 +67,9 @@ func server(port string, mode Mode, service *Service) error {
 	r.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/sitemap.xml")
 	})
+	r.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./favicon_io/favicon.ico")
+	})
 
 	globalMiddleware := []middleware{handler.pathLogger}
 
