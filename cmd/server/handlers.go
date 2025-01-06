@@ -125,6 +125,7 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 
 	coupons, err := h.service.GetCoupons(getCouponParams{
 		WebsiteID: website.WebsiteID,
+		Limit:     4,
 	})
 	if err != nil {
 		return err
