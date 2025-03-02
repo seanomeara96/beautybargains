@@ -13,14 +13,16 @@ import (
 	"time"
 
 	"github.com/gorilla/sessions"
+	"github.com/seanomeara96/auth"
 )
 
 type Handler struct {
-	store   *sessions.CookieStore
-	mode    Mode
-	domain  string
-	service *Service
-	render  *Renderer
+	store         *sessions.CookieStore
+	mode          Mode
+	domain        string
+	service       *Service
+	render        *Renderer
+	authenticator auth.Authenticator
 }
 
 func (h *Handler) handleGetHomePage(w http.ResponseWriter, r *http.Request) error {
@@ -401,4 +403,20 @@ func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) erro
 			"Canonical":       r.URL.Path,
 		},
 	)
+}
+
+func (h *Handler) handleListSubscribers(w http.ResponseWriter, r *http.Request) error {
+
+	subscribers, err := h.service.GetSubscribers()
+	if err != nil {
+		return fmt.Errorf("handler failed to get subscribers; %w", err)
+	}
+
+	return h.render.Page(w, "adminsubscribers", map[string]any{
+		"PageTitle":       "Admin Page, subscribers",
+		"MetaDescription": "",
+		"Canonical":       r.URL.Path,
+		"Subscribers":     subscribers,
+	})
+
 }
