@@ -39,8 +39,9 @@ func TestExtractBannerURLs(t *testing.T) {
 			t.Error(err)
 		}
 
-		if len(bannerData) < 1 {
-			t.Errorf("extract banner urls should return at least one banner")
+		if len(bannerData) < 1 || bannerData[0].Src == "" {
+			t.Errorf("failed to extract any banner urls for %s (id: %d)", websites[i].WebsiteName, websites[i].WebsiteID)
+			t.Errorf("banner data: %+v", bannerData)
 		}
 
 	}

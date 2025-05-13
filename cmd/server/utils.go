@@ -186,10 +186,10 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 		})
 	case 3:
 		// millies
-		doc.Find(".homepage-slider-parent .swiper-wrapper img[width='720']").Each(func(i int, s *goquery.Selection) {
+		doc.Find(".swiper-wrapper .slide-img.md\\:hidden").Each(func(i int, s *goquery.Selection) {
 			millies := BannerData{}
 			// For each item found, get the title
-			if value, found := s.Attr("data-src"); found {
+			if value, found := s.Attr("src"); found {
 				value = strings.ReplaceAll(value, "{width}", "800")
 
 				if strings.HasPrefix(value, "//") {
