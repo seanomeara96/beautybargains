@@ -1,27 +1,29 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
-	"os"
 )
 
 func (h *Handler) mustBeAdmin(next handleFunc) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		// do something admin
 
-		session, err := h.store.Get(r, "admin_session")
+		aToken, rToken, err := h.authenticator.GetTokensFromRequest(r)
 		if err != nil {
 			return err
 		}
 
-		email, found := session.Values["admin_email"]
-		if !found || email != os.Getenv("ADMIN_EMAIL") {
-			return h.Unauthorized(w, r)
+		_, err = h.authenticator.ValidateToken(aToken)
+		if err != nil {
+			aToken, rToken, err = h.authenticator.Refresh(r.Context(), rToken)
+			if err != nil {
+				return err
+			}
+			h.authenticator.SetTokens(w, aToken, rToken)
 		}
 
-		return next(w, r.WithContext(context.WithValue(r.Context(), adminEmailContextKey, email)))
+		return next(w, r)
 	}
 }
 

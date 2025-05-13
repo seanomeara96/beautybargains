@@ -4,13 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
-	"os"
 	"strconv"
 
 	"github.com/seanomeara96/paginator"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func (h *Handler) adminHandleGetDashboard(w http.ResponseWriter, r *http.Request) error {
@@ -212,17 +209,12 @@ func (h *Handler) adminHandleUpdatePost(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) adminHandleGetSignOut(w http.ResponseWriter, r *http.Request) error {
-	session, err := h.store.Get(r, "admin_session")
+
+	refreshToken, err := h.authenticator.GetRefreshTokenFromRequest(r)
 	if err != nil {
 		return err
 	}
-
-	if session.Values["admin_email"] == nil || session.Values["admin_email"] != os.Getenv("ADMIN_EMAIL") {
-		return errors.New("signout called but not logged in")
-	}
-
-	session.Values["admin_email"] = ""
-	if err := session.Save(r, w); err != nil {
+	if err := h.authenticator.Logout(r.Context(), refreshToken); err != nil {
 		return err
 	}
 
@@ -235,33 +227,14 @@ func (h *Handler) adminHandlePostSignIn(w http.ResponseWriter, r *http.Request) 
 	if err := r.ParseForm(); err != nil {
 		return err
 	}
-
-	if os.Getenv("ADMIN_EMAIL") == "" || os.Getenv("HASHED_PASSWORD") == "" {
-		return fmt.Errorf("either admin_email or hashed_password is not set in env")
-	}
-
 	email, password := r.Form.Get("email"), r.Form.Get("password")
 
-	if email != os.Getenv("ADMIN_EMAIL") {
-		log.Println("incorrect admin email supplied")
-		return h.render.Page(w, "adminsignin", nil)
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(os.Getenv("HASHED_PASSWORD")), []byte(password)); err != nil {
-		log.Printf("incorrect password supplied %v", err)
-		return h.render.Page(w, "adminsignin", nil)
-	}
-
-	session, err := h.store.Get(r, "admin_session")
+	aToken, rToken, err := h.authenticator.Login(r.Context(), email, password)
 	if err != nil {
 		return err
 	}
 
-	session.Values["admin_email"] = email
-
-	if err := h.store.Save(r, w, session); err != nil {
-		return err
-	}
+	h.authenticator.SetTokens(w, aToken, rToken)
 
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	return nil

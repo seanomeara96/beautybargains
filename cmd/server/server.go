@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 
 	"github.com/gorilla/sessions"
+	"github.com/seanomeara96/auth"
 )
 
 func server(port string, mode Mode, service *Service) error {
@@ -38,12 +40,27 @@ func server(port string, mode Mode, service *Service) error {
 		tmpl: tmpl,
 	}
 
+	authConfig := auth.AuthConfig{
+		JWTSecretKey: os.Getenv("SESSION_KEY"),
+		CookieSecure: true,
+		HttpOnly:     true,
+		SameSite:     http.SameSiteStrictMode,
+	}
+	authenticator, err := auth.Init(authConfig)
+	if err != nil {
+		return err
+	}
+	defer authenticator.Close()
+
+	authenticator.Register(context.Background(), os.Getenv("ADMIN_EMAIL"), os.Getenv("ADMIN_PASSWORD"))
+
 	handler := Handler{
-		store:   sessions.NewCookieStore([]byte(os.Getenv(`SESSION_KEY`))),
-		mode:    mode,
-		domain:  currentDomain,
-		service: service,
-		render:  renderer,
+		store:         sessions.NewCookieStore([]byte(os.Getenv(`SESSION_KEY`))),
+		mode:          mode,
+		domain:        currentDomain,
+		service:       service,
+		render:        renderer,
+		authenticator: authenticator,
 	}
 
 	assetsDir := http.Dir("assets/dist")
@@ -87,6 +104,14 @@ func server(port string, mode Mode, service *Service) error {
 	handle("GET /admin/signout", handler.adminHandleGetSignOut)
 	handle("GET /admin", handler.mustBeAdmin(handler.adminHandleGetDashboard))
 
+	handle("GET /admin/subscribers", handler.mustBeAdmin(handler.handleListSubscribers))
+	/*	handle("GET /admin/subscribers/create", handler.mustBeAdmin(handler.handleCreateSubscriber))
+		handle("POST /admin/subscribers/create", handler.mustBeAdmin(handler.handleStoreSubscriber))
+		handle("GET /admin/subscribers/{id}", handler.mustBeAdmin(handler.handleEditSubscriber))
+		handle("PUT /admin/subscribers/{id}", handler.mustBeAdmin(handler.handleUpdateSubscriber))
+		handle("GET /admin/subscribers/delete/{id}", handler.mustBeAdmin(handler.handleDeleteSubscriberConfirmation))
+		handle("DELETE /admin/subscribers/{id}", handler.mustBeAdmin(handler.handleDeleteSubscriber))*/
+
 	/*
 		Not part of the MVP
 		handle("GET /admin/posts", handler.mustBeAdmin(handler.handleListPosts))
@@ -112,13 +137,8 @@ func server(port string, mode Mode, service *Service) error {
 		handle("GET /admin/categories/delete/{id}", handler.mustBeAdmin(handler.handleDeleteCategoryConfirmation))
 		handle("DELETE /admin/categories/{id}", handler.mustBeAdmin(handler.handleDeleteCategory))
 
-		handle("GET /admin/subscribers", handler.mustBeAdmin(handler.handleListSubscribers))
-		handle("GET /admin/subscribers/create", handler.mustBeAdmin(handler.handleCreateSubscriber))
-		handle("POST /admin/subscribers/create", handler.mustBeAdmin(handler.handleStoreSubscriber))
-		handle("GET /admin/subscribers/{id}", handler.mustBeAdmin(handler.handleEditSubscriber))
-		handle("PUT /admin/subscribers/{id}", handler.mustBeAdmin(handler.handleUpdateSubscriber))
-		handle("GET /admin/subscribers/delete/{id}", handler.mustBeAdmin(handler.handleDeleteSubscriberConfirmation))
-		handle("DELETE /admin/subscribers/{id}", handler.mustBeAdmin(handler.handleDeleteSubscriber))*/
+
+	*/
 
 	log.Println("Server listening on http://localhost:" + port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
