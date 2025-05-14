@@ -52,6 +52,10 @@ func server(port string, mode Mode, service *Service) error {
 	}
 	defer authenticator.Close()
 
+	/*
+		if admin email / password is set in env then no user is created
+		cant log in with email = "" and password = ""
+	*/
 	authenticator.Register(context.Background(), os.Getenv("ADMIN_EMAIL"), os.Getenv("ADMIN_PASSWORD"))
 
 	handler := Handler{
