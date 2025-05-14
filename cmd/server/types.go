@@ -15,4 +15,3 @@ type middleware func(next handleFunc) handleFunc
 
 /* models begin */
 type Mode string
-type contextKey string

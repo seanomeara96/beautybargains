@@ -11,7 +11,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const adminEmailContextKey contextKey = "admin_email"
 const (
 	Dev  Mode = "dev"
 	Prod Mode = "prod"
