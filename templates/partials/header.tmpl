@@ -56,6 +56,10 @@
     <link rel="manifest" href="/favicon_io/site.webmanifest" />
     <link rel="canonical" href="https://beautybargains.ie{{ .Canonical }}" />
     <title>{{ .PageTitle }}</title>
+    
+    <!-- potential fix for lcp issue -->
+    <link rel="preload" href="/assets/output.css" as="style" />
+
     <link rel="stylesheet" href="/assets/output.css" />
     {{ if eq .Env "dev" }}
     <script src="https://cdn.tailwindcss.com"></script>
