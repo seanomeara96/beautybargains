@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -374,8 +375,8 @@ func (h *Handler) Unauthorized(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) error {
-
-	coupons, err := h.service.GetCoupons(getCouponParams{Limit: 50, Offset: 0})
+	websiteID, _ := strconv.Atoi(r.URL.Query().Get("store"))
+	coupons, err := h.service.GetCoupons(getCouponParams{WebsiteID: websiteID, Limit: 50, Offset: 0})
 	if err != nil {
 		return err
 	}
@@ -384,14 +385,18 @@ func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) erro
 		Coupon  CouponCode
 		Website Website
 	}
-	data := make([]WebsiteCoupon, len(coupons))
+	websiteCoupons := make([]WebsiteCoupon, len(coupons))
 	for i, coupon := range coupons {
-		data[i].Coupon = coupon
+		websiteCoupons[i].Coupon = coupon
 		site, err := getWebsiteByID(coupon.WebsiteID)
 		if err != nil {
 			return err
 		}
-		data[i].Website = site
+		websiteCoupons[i].Website = site
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		return h.render.Template(w, "coupons-container", websiteCoupons)
 	}
 
 	return h.render.Page(w,
@@ -399,8 +404,9 @@ func (h *Handler) handleListCoupons(w http.ResponseWriter, r *http.Request) erro
 		map[string]any{
 			"PageTitle":       "Find Coupons/Discount Codes for top Beauty Retailers in Ireland!",
 			"MetaDescription": "We collect new discount codes as fast as we can and leave all them here for you.",
-			"WebsiteCoupons":  data,
+			"WebsiteCoupons":  websiteCoupons,
 			"Canonical":       r.URL.Path,
+			"Websites":        getWebsites(0, 0),
 		},
 	)
 }

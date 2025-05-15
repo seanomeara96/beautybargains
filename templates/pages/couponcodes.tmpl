@@ -13,9 +13,27 @@
 
 <hr class="container mx-auto" />
 
+<div class="container mx-auto px-4 my-4">
+  <label for="storeFilter" class="block text-sm font-medium text-gray-700"
+    >Filter by Store:</label
+  >
+  <select
+    id="storeFilter"
+    name="store"
+    class="mt-1 block w-full md:w-1/3 py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500 sm:text-sm"
+    hx-get="/coupons"
+    hx-trigger="change"
+    hx-target=".coupon-codes"
+    hx-swap="outerHTML"
+  >
+  <option value="0">All Stores</option>
+  {{ range .Websites }}
+    <option value="{{ .WebsiteID }}">{{ .WebsiteName }}</option>
+  {{ end }}
+  </select>
+</div>
 
 {{ template "coupons-container" .WebsiteCoupons}}
-
 
 {{ template "footer" . }}
 {{ end }}
