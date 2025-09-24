@@ -6,7 +6,8 @@ import (
 )
 
 type Service struct {
-	db *sql.DB
+	db        *sql.DB
+	ReportErr func(error) error
 
 	// category statemants
 	// Prepared statements for reusing and improving performance
@@ -17,8 +18,8 @@ type Service struct {
 }
 
 // NewService initializes the Service with prepared statements
-func NewService(db *sql.DB) (*Service, error) {
-	s := &Service{db: db}
+func NewService(db *sql.DB, reportErr func(error) error) (*Service, error) {
+	s := &Service{db: db, ReportErr: reportErr}
 
 	var err error
 

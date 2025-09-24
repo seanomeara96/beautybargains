@@ -18,10 +18,21 @@ type Website struct {
 	Path        string  `json:"path"`         // URL-safe slug or path
 }
 
+const (
+	_ = iota
+	BeautyFeatures
+	LookFantasticIE
+	Millies
+	McCauley
+	SkinShop
+	Cloud10
+	BeautySavers
+)
+
 // Sample websites data
 var websites = []Website{
 	{
-		WebsiteID:   1,
+		WebsiteID:   BeautyFeatures,
 		WebsiteName: "BeautyFeatures",
 		URL:         "https://www.beautyfeatures.ie",
 		Country:     "IE",
@@ -31,7 +42,7 @@ var websites = []Website{
 		Path:        slug.Make("BeautyFeatures"),
 	},
 	{
-		WebsiteID:   2,
+		WebsiteID:   LookFantasticIE,
 		WebsiteName: "LookFantastic",
 		URL:         "https://lookfantastic.ie",
 		Country:     "IE",
@@ -41,7 +52,7 @@ var websites = []Website{
 		Path:        slug.Make("LookFantastic"),
 	},
 	{
-		WebsiteID:   3,
+		WebsiteID:   Millies,
 		WebsiteName: "Millies",
 		URL:         "https://millies.ie",
 		Country:     "IE",
@@ -51,7 +62,7 @@ var websites = []Website{
 		Path:        slug.Make("Millies"),
 	},
 	{
-		WebsiteID:   4,
+		WebsiteID:   McCauley,
 		WebsiteName: "McCauley Pharmacy",
 		URL:         "https://www.mccauley.ie/",
 		Country:     "IE",
@@ -61,7 +72,7 @@ var websites = []Website{
 		Path:        slug.Make("McCauley Pharmacy"),
 	},
 	{
-		WebsiteID:   5,
+		WebsiteID:   SkinShop,
 		WebsiteName: "Skin Shop",
 		URL:         "https://skinshop.ie/",
 		Country:     "IE",
@@ -71,7 +82,7 @@ var websites = []Website{
 		Path:        slug.Make("skin shop"),
 	},
 	{
-		WebsiteID:   6,
+		WebsiteID:   Cloud10,
 		WebsiteName: "Cloud10 Beauty",
 		URL:         "https://www.cloud10beauty.com/",
 		Country:     "IE",
@@ -81,7 +92,7 @@ var websites = []Website{
 		Path:        slug.Make("cloud10 beauty"),
 	},
 	{
-		WebsiteID:   7,
+		WebsiteID:   BeautySavers,
 		WebsiteName: "BeautySavers",
 		URL:         "https://www.beautysavers.ie/",
 		Country:     "IE",

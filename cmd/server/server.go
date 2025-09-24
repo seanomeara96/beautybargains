@@ -94,7 +94,7 @@ func server(port string, mode Mode, service *Service) error {
 
 	globalMiddleware := []middleware{handler.pathLogger}
 
-	handle := newHandleFunc(r, globalMiddleware)
+	handle := newHandleFunc(r, globalMiddleware, service.ReportErr)
 
 	handle("/", handler.handleGetHomePage)
 	handle("GET /coupons", handler.handleListCoupons)

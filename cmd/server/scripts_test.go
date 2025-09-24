@@ -20,7 +20,11 @@ func TestProcessHashtags(t *testing.T) {
 	}
 	defer db.Close()
 
-	service, err := NewService(db)
+	reportErr := func(err error) error {
+		return err
+	}
+
+	service, err := NewService(db, reportErr)
 	if err != nil {
 		t.Fatal(fmt.Errorf("failed to create new service: %w", err))
 	}

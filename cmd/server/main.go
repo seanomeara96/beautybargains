@@ -5,10 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/seanomeara96/tgram"
 )
 
 const (
@@ -30,7 +32,14 @@ func main() {
 	}
 	defer db.Close()
 
-	service, err := NewService(db)
+	reportErr, err := tgram.NewErrorReporter(
+		"beautybargains.ie", os.Getenv("TGRAM_BOT_API_TOKEN"), os.Getenv("TGRAM_CHAT_ID"),
+	)
+	if err != nil {
+		log.Fatalf("failed to connect the error reporter: %v", err)
+	}
+
+	service, err := NewService(db, reportErr)
 	if err != nil {
 		log.Fatal(fmt.Errorf("failed to create new service: %w", err))
 	}
@@ -46,6 +55,7 @@ func main() {
 	mode := Mode(*_mode)
 	skip := *_skip
 	// comment
+
 	if !skip {
 		go func() {
 			for {

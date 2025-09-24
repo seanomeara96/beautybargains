@@ -13,11 +13,9 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-func reportErr(err error) {
-	log.Print(err)
-}
-
-func newHandleFunc(r *http.ServeMux, globalMiddleware []middleware) func(path string, fn handleFunc) {
+func newHandleFunc(
+	r *http.ServeMux, globalMiddleware []middleware, reportErr func(error) error,
+) func(path string, fn handleFunc) {
 	return func(path string, fn handleFunc) {
 		for i := range globalMiddleware {
 			fn = globalMiddleware[i](fn)
@@ -155,9 +153,13 @@ func extractWebsiteBannerURLs(website Website) ([]BannerData, error) {
 		doc.Find(".carousel-item").Each(func(i int, selection *goquery.Selection) {
 			lf := BannerData{}
 			// logic goes here
-			if imgSrc, found := selection.Find("[media='(max-width: 430px)']").Attr("srcset"); found {
+			if imgSrc, found := selection.Find("[media='(max-width: 640px)']").Attr("srcset"); found {
 				if strings.HasPrefix(imgSrc, "/") {
 					imgSrc = website.URL + imgSrc
+				}
+
+				if strings.Contains(imgSrc, " ") {
+					imgSrc = strings.Split(imgSrc, " ")[0]
 				}
 
 				lf.Src = imgSrc
