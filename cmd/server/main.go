@@ -26,7 +26,7 @@ func main() {
 		log.Fatal(fmt.Errorf("failed to load .env file: %w", err))
 	}
 
-	db, err := sql.Open("sqlite3", "main.db")
+	db, err := sql.Open("sqlite3", "main.db?_busy_timeout=5000&_journal_mode=WAL")
 	if err != nil {
 		log.Fatal(fmt.Errorf("failed to open database: %w", err))
 	}

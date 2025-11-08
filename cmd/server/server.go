@@ -67,6 +67,9 @@ func server(port string, mode Mode, service *Service) error {
 		authenticator: authenticator,
 	}
 
+	handler.InitSubscriptionWorker()
+	defer handler.Close()
+
 	assetsDir := http.Dir("assets/dist")
 	assetsFileServer := http.FileServer(assetsDir)
 	r.Handle("/assets/", http.StripPrefix("/assets/", assetsFileServer))

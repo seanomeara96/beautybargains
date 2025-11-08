@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -18,12 +19,41 @@ import (
 )
 
 type Handler struct {
-	store         *sessions.CookieStore
-	mode          Mode
-	domain        string
-	service       *Service
-	render        *Renderer
-	authenticator auth.Authenticator
+	store             *sessions.CookieStore
+	mode              Mode
+	domain            string
+	service           *Service
+	render            *Renderer
+	authenticator     auth.Authenticator
+	subscriptionQueue chan SubscriptionPayload
+}
+
+type SubscriptionPayload struct {
+	Fn      func() error
+	ErrChan chan error
+}
+
+func (h *Handler) Close() {
+	if h.subscriptionQueue != nil {
+		close(h.subscriptionQueue)
+		h.subscriptionQueue = nil
+	}
+}
+
+func (h *Handler) InitSubscriptionWorker() {
+
+	if h.subscriptionQueue == nil {
+		h.subscriptionQueue = make(chan SubscriptionPayload)
+	}
+
+	go func() {
+		for request := range h.subscriptionQueue {
+			// run subscripttionProcess
+			request.ErrChan <- request.Fn()
+			close(request.ErrChan)
+		}
+	}()
+
 }
 
 func (h *Handler) handleGetHomePage(w http.ResponseWriter, r *http.Request) error {
@@ -177,6 +207,8 @@ func (h *Handler) handleGetFeed(w http.ResponseWriter, r *http.Request) error {
 	return h.render.Page(w, "feedpage", data)
 }
 
+var ErrEmailAlreadyExists = errors.New("this email already exists")
+
 func (h *Handler) handleStoreSubscription(w http.ResponseWriter, r *http.Request) error {
 
 	// Set a reasonable maximum size for the form data to prevent memory exhaustion
@@ -201,60 +233,71 @@ func (h *Handler) handleStoreSubscription(w http.ResponseWriter, r *http.Request
 		})
 	}
 
-	// Use a transaction to ensure data consistency
-	tx, err := h.service.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
+	errChan := make(chan error)
+	h.subscriptionQueue <- SubscriptionPayload{
+		Fn: func() error {
 
-	// Check for existing email first
-	var existingEmail string
-	err = tx.QueryRow("SELECT email FROM subscribers WHERE email = ?", email).Scan(&existingEmail)
-	if err != sql.ErrNoRows {
-		if err == nil {
-			return h.render.Template(w, "subscriptionform", map[string]any{
-				"EmailErr": "This email is already subscribed",
-			})
-		}
-		return fmt.Errorf("error checking for existing email: %w", err)
+			// Use a transaction to ensure data consistency
+			tx, err := h.service.db.BeginTx(r.Context(), nil)
+			if err != nil {
+				return fmt.Errorf("failed to begin transaction: %w", err)
+			}
+			defer tx.Rollback()
+
+			// Check for existing email first
+			var existingEmail string
+			err = tx.QueryRowContext(r.Context(), "SELECT email FROM subscribers WHERE email = ?", email).Scan(&existingEmail)
+			if err == nil {
+				return ErrEmailAlreadyExists
+			}
+			if err != sql.ErrNoRows {
+				return fmt.Errorf("error for existing email: %w", err)
+			}
+
+			// Insert new subscriber
+			_, err = tx.ExecContext(r.Context(), `INSERT INTO subscribers(email, consent) VALUES (?, 1)`, email)
+			if err != nil {
+				if isSQLiteConstraintError(err) {
+					return ErrEmailAlreadyExists
+				}
+				return fmt.Errorf("could not insert email into subscribers table: %w", err)
+			}
+
+			// Generate a cryptographically secure token with sufficient entropy
+			token := make([]byte, 32)
+			if _, err = rand.Read(token); err != nil {
+				return fmt.Errorf("failed to generate secure token: %w", err)
+			}
+			tokenStr := hex.EncodeToString(token)
+
+			// Update the verification token
+			_, err = tx.ExecContext(
+				r.Context(),
+				`UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`,
+				tokenStr, email,
+			)
+			if err != nil {
+				return fmt.Errorf("could not add verification token to user by email: %w", err)
+			}
+
+			// Commit the transaction
+			if err = tx.Commit(); err != nil {
+				return fmt.Errorf("failed to commit transaction: %w", err)
+			}
+
+			return nil
+		},
+		ErrChan: errChan,
 	}
 
-	// Insert new subscriber
-	if _, err = tx.Exec(`INSERT INTO subscribers(email, consent) VALUES (?, 1)`, email); err != nil {
-		if isSQLiteConstraintError(err) {
-			return h.render.Template(w, "subscriptionform", map[string]any{
-				"EmailErr": "This email is already subscribed",
-			})
-		}
-		return fmt.Errorf("could not insert email into subscribers table: %w", err)
+	err := <-errChan
+	if errors.Is(err, ErrEmailAlreadyExists) {
+		return h.render.Template(w, "subscriptionform", map[string]any{
+			"EmailErr": "This email is already subscribed",
+		})
+
 	}
 
-	// Generate a cryptographically secure token with sufficient entropy
-	token := make([]byte, 32)
-	if _, err = rand.Read(token); err != nil {
-		return fmt.Errorf("failed to generate secure token: %w", err)
-	}
-	tokenStr := hex.EncodeToString(token)
-
-	// Update the verification token
-	if _, err = tx.Exec(
-		`UPDATE subscribers SET verification_token = ?, is_verified = 0 WHERE email = ?`,
-		tokenStr, email,
-	); err != nil {
-		return fmt.Errorf("could not add verification token to user by email: %w", err)
-	}
-
-	// Commit the transaction
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	// Set secure cookie with appropriate flags
 	http.SetCookie(w, &http.Cookie{
 		Name:     "subscription_status",
 		Value:    "subscribed",
@@ -264,11 +307,6 @@ func (h *Handler) handleStoreSubscription(w http.ResponseWriter, r *http.Request
 		SameSite: http.SameSiteStrictMode, // Prevent CSRF attacks
 		Path:     "/",                     // Restrict cookie scope
 	})
-
-	// Log verification URL (for development only)
-	if h.mode == Dev {
-		log.Printf("Verify subscription at %s/subscribe/verify?token=%s", h.domain, tokenStr)
-	}
 
 	return h.render.Template(w, "subscriptionsuccess", nil)
 }
