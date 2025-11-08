@@ -6,3 +6,5 @@ data-journal
 images/
 *.db
 bin/
+main.db-shm
+main.db-wal
